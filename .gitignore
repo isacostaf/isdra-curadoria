@@ -1,0 +1,10 @@
+node_modules/
+uploads/project/*
+uploads/folders/*
+uploads/items/*
+!uploads/project/.gitkeep
+!uploads/folders/.gitkeep
+!uploads/items/.gitkeep
+data/db.json
+*.log
+.DS_Store
