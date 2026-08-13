@@ -6,5 +6,6 @@ uploads/items/*
 !uploads/folders/.gitkeep
 !uploads/items/.gitkeep
 data/db.json
+data/MIGRATION_CREDENTIALS.txt
 *.log
 .DS_Store

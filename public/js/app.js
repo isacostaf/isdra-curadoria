@@ -77,10 +77,35 @@ function hostFromUrl(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return url; }
 }
 
+// ---------------------------------------------------------------
+// session (per-project code + senha, kept for this browser tab only —
+// closing the tab or opening a fresh one asks for the code again)
+// ---------------------------------------------------------------
+const SESSION_KEY = 'isdra_session';
+function getSession() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) { return null; }
+}
+function setSession(token, project) {
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token, project }));
+}
+function clearSession() {
+  sessionStorage.removeItem(SESSION_KEY);
+}
+
 async function api(path, opts = {}) {
-  const res = await fetch(path, opts);
+  const session = getSession();
+  const headers = { ...(opts.headers || {}) };
+  if (session && session.token) headers.Authorization = `Bearer ${session.token}`;
+  const res = await fetch(path, { ...opts, headers });
   let data = null;
   try { data = await res.json(); } catch (e) { /* no body */ }
+  if (res.status === 401 && session && session.token) {
+    forceLogout();
+    throw new Error((data && data.error) || 'Sessão expirada. Entre novamente.');
+  }
   if (!res.ok) {
     const msg = (data && data.error) || `Erro (${res.status})`;
     throw new Error(msg);
@@ -154,6 +179,193 @@ function route() {
   const r = parseHash();
   if (r.view === 'folder') renderFolderView(r.id);
   else renderHomeView();
+}
+
+// ---------------------------------------------------------------
+// AUTH GATE — cada projeto tem seu próprio código + senha
+// ---------------------------------------------------------------
+const gateRoot = document.getElementById('gate-root');
+const appShell = document.getElementById('app-shell');
+
+function forceLogout() {
+  clearSession();
+  appShell.style.display = 'none';
+  renderGate('login');
+}
+
+function enterApp() {
+  gateRoot.innerHTML = '';
+  appShell.style.display = '';
+  renderTopbarProject();
+  location.hash = '';
+  route();
+}
+
+function renderTopbarProject() {
+  const session = getSession();
+  const el = document.getElementById('topbar-project');
+  if (!session) { el.innerHTML = ''; return; }
+  const initial = (session.project.name || '?').trim().charAt(0).toUpperCase() || '?';
+  el.innerHTML = `
+    <button class="topbar-project-btn" id="switch-project-btn" type="button">
+      <span class="avatar">${esc(initial)}</span>
+      <span>${esc(session.project.name)}</span>
+      <span class="code">· ${esc(session.project.code)}</span>
+    </button>`;
+  document.getElementById('switch-project-btn').addEventListener('click', () => {
+    openActionSheet([
+      { label: 'Trocar de projeto', icon: ICONS.folder, onClick: () => forceLogout() }
+    ]);
+  });
+}
+
+function renderGate(initialTab, successMessage) {
+  appShell.style.display = 'none';
+  gateRoot.innerHTML = `
+    <div class="gate-screen">
+      <div class="gate-brand">
+        <span class="brand-mark">${ICONS.sparkle}</span>
+        <span class="brand-text">ISDRA</span>
+      </div>
+      <div class="gate-card">
+        <div class="gate-tabs">
+          <button class="gate-tab ${initialTab === 'register' ? '' : 'active'}" data-tab="login" type="button">Entrar</button>
+          <button class="gate-tab ${initialTab === 'register' ? 'active' : ''}" data-tab="register" type="button">Criar projeto</button>
+        </div>
+        <div id="gate-tab-content"></div>
+      </div>
+      <p class="gate-hint">Cada projeto tem seu próprio código e senha — compartilhe os dois com quem também vai colaborar nas escolhas.</p>
+    </div>`;
+
+  gateRoot.querySelectorAll('.gate-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      gateRoot.querySelectorAll('.gate-tab').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderGateTab(btn.getAttribute('data-tab'));
+    });
+  });
+  renderGateTab(initialTab === 'register' ? 'register' : 'login', successMessage);
+}
+
+function renderGateTab(tab, successMessage) {
+  const content = document.getElementById('gate-tab-content');
+  if (tab === 'register') {
+    content.innerHTML = `
+      <h2 class="gate-title">Criar novo projeto</h2>
+      <p class="gate-sub">Defina um código e uma senha — quem tiver os dois vai poder ver e editar as pastas deste projeto.</p>
+      ${successMessage ? `<div class="gate-success">${esc(successMessage)}</div>` : ''}
+      <form id="register-form">
+        <div class="field">
+          <label>Nome do projeto <span class="req">*</span></label>
+          <input type="text" name="name" placeholder="Ex: Apê da Isabelle" required maxlength="60" />
+        </div>
+        <div class="field">
+          <label>Código do projeto <span class="req">*</span></label>
+          <input type="text" name="code" placeholder="Ex: ISABELLE2026" required maxlength="40" />
+          <div class="field-hint">É o que as outras pessoas vão digitar pra entrar neste projeto.</div>
+        </div>
+        <div class="field">
+          <label>Senha <span class="req">*</span></label>
+          <input type="password" name="password" placeholder="Mínimo 4 caracteres" required minlength="4" />
+        </div>
+        <div class="field-error" id="register-error" style="display:none;"></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary btn-block" id="register-submit">Criar projeto e entrar</button>
+        </div>
+      </form>`;
+    document.getElementById('register-form').addEventListener('submit', onRegisterSubmit);
+  } else {
+    content.innerHTML = `
+      <h2 class="gate-title">Entrar no projeto</h2>
+      <p class="gate-sub">Digite o código e a senha que foram compartilhados com você.</p>
+      ${successMessage ? `<div class="gate-success">${esc(successMessage)}</div>` : ''}
+      <form id="login-form">
+        <div class="field">
+          <label>Código do projeto <span class="req">*</span></label>
+          <input type="text" name="code" placeholder="Ex: ISABELLE2026" required maxlength="40" />
+        </div>
+        <div class="field">
+          <label>Senha <span class="req">*</span></label>
+          <input type="password" name="password" placeholder="Sua senha" required />
+        </div>
+        <div class="field-error" id="login-error" style="display:none;"></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary btn-block" id="login-submit">Entrar</button>
+        </div>
+      </form>`;
+    document.getElementById('login-form').addEventListener('submit', onLoginSubmit);
+  }
+}
+
+async function onLoginSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  const btn = document.getElementById('login-submit');
+  btn.disabled = true;
+  btn.textContent = 'Entrando…';
+  try {
+    const fd = new FormData(form);
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: fd.get('code'), password: fd.get('password') })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Não foi possível entrar.');
+    setSession(data.token, data.project);
+    enterApp();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  }
+}
+
+async function onRegisterSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  const errEl = document.getElementById('register-error');
+  errEl.style.display = 'none';
+  const btn = document.getElementById('register-submit');
+  btn.disabled = true;
+  btn.textContent = 'Criando…';
+  try {
+    const fd = new FormData(form);
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: fd.get('name'), code: fd.get('code'), password: fd.get('password') })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Não foi possível criar o projeto.');
+    setSession(data.token, data.project);
+    enterApp();
+    toast('Projeto criado! Guarde o código e a senha em um lugar seguro.');
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Criar projeto e entrar';
+  }
+}
+
+async function boot() {
+  const session = getSession();
+  if (!session || !session.token) {
+    renderGate('login');
+    return;
+  }
+  try {
+    const data = await api('/api/auth/me');
+    setSession(session.token, data.project);
+    enterApp();
+  } catch (e) {
+    clearSession();
+    renderGate('login');
+  }
 }
 
 // ---------------------------------------------------------------
@@ -765,4 +977,4 @@ function openItemDetailModal(item, folderId) {
 // ---------------------------------------------------------------
 // init
 // ---------------------------------------------------------------
-route();
+boot();

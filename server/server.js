@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { readDB, writeDB } = require('./db');
+const { normalizeCode, hashPassword, verifyPassword } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3210;
@@ -19,6 +20,29 @@ Object.values(DIRS).forEach((d) => fs.mkdirSync(d, { recursive: true }));
 app.use(express.json());
 app.use('/uploads', express.static(UPLOADS_ROOT));
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+// ============================================================
+// SESSIONS
+// In-memory only: tokens are simple opaque IDs mapped to a projectId.
+// A server restart signs everyone out — they just re-enter their
+// project's code + password, which is the intended flow (shared
+// access per project, not per-person accounts).
+// ============================================================
+const sessions = new Map(); // token -> { projectId, createdAt }
+
+function requireAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const session = token && sessions.get(token);
+  if (!session) return res.status(401).json({ error: 'Sessão expirada. Entre novamente com o código e a senha do projeto.' });
+  req.token = token;
+  req.projectId = session.projectId;
+  next();
+}
+
+function publicProject(p) {
+  return { id: p.id, name: p.name, code: p.code };
+}
 
 // ---------- Multer setup ----------
 function makeStorage(destKey) {
@@ -77,17 +101,86 @@ function normalizeLink(link) {
 }
 
 // ============================================================
+// AUTH — cada projeto tem seu próprio código + senha
+// ============================================================
+app.post('/api/auth/register', (req, res) => {
+  const name = (req.body.name || '').trim();
+  const code = (req.body.code || '').trim();
+  const password = req.body.password || '';
+  const codeNormalized = normalizeCode(code);
+
+  if (!name) return res.status(400).json({ error: 'Dê um nome para o projeto.' });
+  if (!codeNormalized) return res.status(400).json({ error: 'Escolha um código para o projeto.' });
+  if (password.length < 4) return res.status(400).json({ error: 'A senha precisa ter pelo menos 4 caracteres.' });
+
+  const db = readDB();
+  if (db.projects.some((p) => p.codeNormalized === codeNormalized)) {
+    return res.status(409).json({ error: 'Esse código já está em uso. Escolha outro.' });
+  }
+
+  const { salt, hash } = hashPassword(password);
+  const project = {
+    id: crypto.randomUUID(),
+    name,
+    code,
+    codeNormalized,
+    passwordSalt: salt,
+    passwordHash: hash,
+    architecturePdf: null,
+    notebookPdf: null,
+    createdAt: new Date().toISOString()
+  };
+  db.projects.push(project);
+  writeDB(db);
+
+  const token = crypto.randomUUID();
+  sessions.set(token, { projectId: project.id, createdAt: Date.now() });
+  res.status(201).json({ token, project: publicProject(project) });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const codeNormalized = normalizeCode(req.body.code);
+  const password = req.body.password || '';
+  const db = readDB();
+  const project = db.projects.find((p) => p.codeNormalized === codeNormalized);
+  if (!project || !verifyPassword(password, project.passwordSalt, project.passwordHash)) {
+    return res.status(401).json({ error: 'Código ou senha incorretos.' });
+  }
+  const token = crypto.randomUUID();
+  sessions.set(token, { projectId: project.id, createdAt: Date.now() });
+  res.json({ token, project: publicProject(project) });
+});
+
+app.post('/api/auth/logout', requireAuth, (req, res) => {
+  sessions.delete(req.token);
+  res.json({ ok: true });
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  const db = readDB();
+  const project = db.projects.find((p) => p.id === req.projectId);
+  if (!project) return res.status(404).json({ error: 'Projeto não encontrado.' });
+  res.json({ project: publicProject(project) });
+});
+
+// everything below this line is scoped to the authenticated project
+app.use(['/api/project', '/api/folders', '/api/items'], requireAuth);
+
+// ============================================================
 // PROJECT (architecture PDF + furniture notebook PDF)
 // ============================================================
 app.get('/api/project', (req, res) => {
   const db = readDB();
-  const proj = db.project;
+  const project = db.projects.find((p) => p.id === req.projectId);
+  if (!project) return res.status(404).json({ error: 'Projeto não encontrado.' });
   res.json({
-    architecturePdf: proj.architecturePdf
-      ? { ...proj.architecturePdf, url: publicUrl('project', proj.architecturePdf.filename) }
+    name: project.name,
+    code: project.code,
+    architecturePdf: project.architecturePdf
+      ? { ...project.architecturePdf, url: publicUrl('project', project.architecturePdf.filename) }
       : null,
-    notebookPdf: proj.notebookPdf
-      ? { ...proj.notebookPdf, url: publicUrl('project', proj.notebookPdf.filename) }
+    notebookPdf: project.notebookPdf
+      ? { ...project.notebookPdf, url: publicUrl('project', project.notebookPdf.filename) }
       : null
   });
 });
@@ -96,8 +189,13 @@ function handleProjectUpload(field) {
   return (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo PDF enviado.' });
     const db = readDB();
-    const old = db.project[field];
-    db.project[field] = {
+    const project = db.projects.find((p) => p.id === req.projectId);
+    if (!project) {
+      removeFileIfExists('project', req.file.filename);
+      return res.status(404).json({ error: 'Projeto não encontrado.' });
+    }
+    const old = project[field];
+    project[field] = {
       filename: req.file.filename,
       originalName: req.file.originalname,
       uploadedAt: new Date().toISOString()
@@ -105,8 +203,8 @@ function handleProjectUpload(field) {
     writeDB(db);
     if (old && old.filename) removeFileIfExists('project', old.filename);
     res.json({
-      ...db.project[field],
-      url: publicUrl('project', db.project[field].filename)
+      ...project[field],
+      url: publicUrl('project', project[field].filename)
     });
   };
 }
@@ -117,9 +215,11 @@ app.post('/api/project/notebook', uploadProjectPdf.single('file'), handleProject
 function handleProjectDelete(field) {
   return (req, res) => {
     const db = readDB();
-    const old = db.project[field];
+    const project = db.projects.find((p) => p.id === req.projectId);
+    if (!project) return res.status(404).json({ error: 'Projeto não encontrado.' });
+    const old = project[field];
     if (old && old.filename) removeFileIfExists('project', old.filename);
-    db.project[field] = null;
+    project[field] = null;
     writeDB(db);
     res.json({ ok: true });
   };
@@ -141,13 +241,15 @@ function folderPayload(folder, items) {
 
 app.get('/api/folders', (req, res) => {
   const db = readDB();
-  const sorted = [...db.folders].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  const sorted = db.folders
+    .filter((f) => f.projectId === req.projectId)
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   res.json(sorted.map((f) => folderPayload(f, db.items)));
 });
 
 app.get('/api/folders/:id', (req, res) => {
   const db = readDB();
-  const folder = db.folders.find((f) => f.id === req.params.id);
+  const folder = db.folders.find((f) => f.id === req.params.id && f.projectId === req.projectId);
   if (!folder) return res.status(404).json({ error: 'Pasta não encontrada.' });
   res.json(folderPayload(folder, db.items));
 });
@@ -165,6 +267,7 @@ app.post('/api/folders', uploadFolderPhoto.single('photo'), (req, res) => {
   const now = new Date().toISOString();
   const folder = {
     id: crypto.randomUUID(),
+    projectId: req.projectId,
     name,
     photo: req.file.filename,
     createdAt: now,
@@ -177,7 +280,7 @@ app.post('/api/folders', uploadFolderPhoto.single('photo'), (req, res) => {
 
 app.put('/api/folders/:id', uploadFolderPhoto.single('photo'), (req, res) => {
   const db = readDB();
-  const folder = db.folders.find((f) => f.id === req.params.id);
+  const folder = db.folders.find((f) => f.id === req.params.id && f.projectId === req.projectId);
   if (!folder) {
     if (req.file) removeFileIfExists('folders', req.file.filename);
     return res.status(404).json({ error: 'Pasta não encontrada.' });
@@ -196,7 +299,7 @@ app.put('/api/folders/:id', uploadFolderPhoto.single('photo'), (req, res) => {
 
 app.delete('/api/folders/:id', (req, res) => {
   const db = readDB();
-  const idx = db.folders.findIndex((f) => f.id === req.params.id);
+  const idx = db.folders.findIndex((f) => f.id === req.params.id && f.projectId === req.projectId);
   if (idx === -1) return res.status(404).json({ error: 'Pasta não encontrada.' });
   const [folder] = db.folders.splice(idx, 1);
   removeFileIfExists('folders', folder.photo);
@@ -222,7 +325,7 @@ function itemPayload(item) {
 
 app.get('/api/folders/:id/items', (req, res) => {
   const db = readDB();
-  const folder = db.folders.find((f) => f.id === req.params.id);
+  const folder = db.folders.find((f) => f.id === req.params.id && f.projectId === req.projectId);
   if (!folder) return res.status(404).json({ error: 'Pasta não encontrada.' });
   const items = db.items
     .filter((i) => i.folderId === folder.id)
@@ -232,7 +335,7 @@ app.get('/api/folders/:id/items', (req, res) => {
 
 app.post('/api/folders/:id/items', uploadItemPhoto.single('photo'), (req, res) => {
   const db = readDB();
-  const folder = db.folders.find((f) => f.id === req.params.id);
+  const folder = db.folders.find((f) => f.id === req.params.id && f.projectId === req.projectId);
   if (!folder) {
     if (req.file) removeFileIfExists('items', req.file.filename);
     return res.status(404).json({ error: 'Pasta não encontrada.' });
@@ -245,6 +348,7 @@ app.post('/api/folders/:id/items', uploadItemPhoto.single('photo'), (req, res) =
   const now = new Date().toISOString();
   const item = {
     id: crypto.randomUUID(),
+    projectId: req.projectId,
     folderId: folder.id,
     name: (req.body.name || '').trim(),
     photo: req.file ? req.file.filename : null,
@@ -263,14 +367,14 @@ app.post('/api/folders/:id/items', uploadItemPhoto.single('photo'), (req, res) =
 
 app.get('/api/items/:id', (req, res) => {
   const db = readDB();
-  const item = db.items.find((i) => i.id === req.params.id);
+  const item = db.items.find((i) => i.id === req.params.id && i.projectId === req.projectId);
   if (!item) return res.status(404).json({ error: 'Item não encontrado.' });
   res.json(itemPayload(item));
 });
 
 app.put('/api/items/:id', uploadItemPhoto.single('photo'), (req, res) => {
   const db = readDB();
-  const item = db.items.find((i) => i.id === req.params.id);
+  const item = db.items.find((i) => i.id === req.params.id && i.projectId === req.projectId);
   if (!item) {
     if (req.file) removeFileIfExists('items', req.file.filename);
     return res.status(404).json({ error: 'Item não encontrado.' });
@@ -303,7 +407,7 @@ app.put('/api/items/:id', uploadItemPhoto.single('photo'), (req, res) => {
 
 app.delete('/api/items/:id', (req, res) => {
   const db = readDB();
-  const idx = db.items.findIndex((i) => i.id === req.params.id);
+  const idx = db.items.findIndex((i) => i.id === req.params.id && i.projectId === req.projectId);
   if (idx === -1) return res.status(404).json({ error: 'Item não encontrado.' });
   const [item] = db.items.splice(idx, 1);
   removeFileIfExists('items', item.photo);
@@ -320,5 +424,5 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\n  Mobília rodando em http://localhost:${PORT}\n`);
+  console.log(`\n  ISDRA rodando em http://localhost:${PORT}\n`);
 });
