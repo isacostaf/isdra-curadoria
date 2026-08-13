@@ -67,12 +67,6 @@ function fmtPrice(v) {
   if (Number.isNaN(n)) return null;
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
-function fmtDate(iso) {
-  if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
-  } catch (e) { return ''; }
-}
 function hostFromUrl(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return url; }
 }
@@ -205,12 +199,11 @@ function renderTopbarProject() {
   const session = getSession();
   const el = document.getElementById('topbar-project');
   if (!session) { el.innerHTML = ''; return; }
-  const initial = (session.project.name || '?').trim().charAt(0).toUpperCase() || '?';
+  const initial = (session.project.code || '?').trim().charAt(0).toUpperCase() || '?';
   el.innerHTML = `
     <button class="topbar-project-btn" id="switch-project-btn" type="button">
       <span class="avatar">${esc(initial)}</span>
-      <span>${esc(session.project.name)}</span>
-      <span class="code">· ${esc(session.project.code)}</span>
+      <span>${esc(session.project.code)}</span>
     </button>`;
   document.getElementById('switch-project-btn').addEventListener('click', () => {
     openActionSheet([
@@ -252,17 +245,13 @@ function renderGateTab(tab, successMessage) {
   if (tab === 'register') {
     content.innerHTML = `
       <h2 class="gate-title">Criar novo projeto</h2>
-      <p class="gate-sub">Defina um código e uma senha — quem tiver os dois vai poder ver e editar as pastas deste projeto.</p>
+      <p class="gate-sub">Escolha um código e uma senha — quem tiver os dois vai poder ver e editar as pastas deste projeto.</p>
       ${successMessage ? `<div class="gate-success">${esc(successMessage)}</div>` : ''}
       <form id="register-form">
         <div class="field">
-          <label>Nome do projeto <span class="req">*</span></label>
-          <input type="text" name="name" placeholder="Ex: Apê da Isabelle" required maxlength="60" />
-        </div>
-        <div class="field">
           <label>Código do projeto <span class="req">*</span></label>
-          <input type="text" name="code" placeholder="Ex: ISABELLE2026" required maxlength="40" />
-          <div class="field-hint">É o que as outras pessoas vão digitar pra entrar neste projeto.</div>
+          <input type="text" name="code" placeholder="Ex: projeto-ana-luisa" required maxlength="60" />
+          <div class="field-hint">É o que as outras pessoas vão digitar pra entrar neste projeto. Use letras, números e hífens.</div>
         </div>
         <div class="field">
           <label>Senha <span class="req">*</span></label>
@@ -282,7 +271,7 @@ function renderGateTab(tab, successMessage) {
       <form id="login-form">
         <div class="field">
           <label>Código do projeto <span class="req">*</span></label>
-          <input type="text" name="code" placeholder="Ex: ISABELLE2026" required maxlength="40" />
+          <input type="text" name="code" placeholder="Ex: projeto-ana-luisa" required maxlength="60" />
         </div>
         <div class="field">
           <label>Senha <span class="req">*</span></label>
@@ -337,7 +326,7 @@ async function onRegisterSubmit(e) {
     const res = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: fd.get('name'), code: fd.get('code'), password: fd.get('password') })
+      body: JSON.stringify({ code: fd.get('code'), password: fd.get('password') })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Não foi possível criar o projeto.');
@@ -513,7 +502,6 @@ function renderProjectModal(field, fileInfo) {
         <div class="icon">${ICONS.note}</div>
         <div class="info">
           <div class="name">${esc(fileInfo.originalName)}</div>
-          <div class="date">Adicionado em ${fmtDate(fileInfo.uploadedAt)}</div>
         </div>
       </div>
       <div class="pdf-frame-wrap">

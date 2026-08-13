@@ -100,7 +100,6 @@ svg { display: block; }
   font-weight: 600;
   color: var(--ink);
 }
-.topbar-project-btn .code { color: var(--ink-soft); font-weight: 500; }
 .topbar-project-btn .avatar {
   width: 24px; height: 24px; border-radius: 50%;
   background: var(--black); color: #fdf9f2;
@@ -626,7 +625,6 @@ svg { display: block; }
 .pdf-file-row .icon svg { width: 18px; height: 18px; color: var(--ink); }
 .pdf-file-row .info { flex: 1; min-width: 0; }
 .pdf-file-row .name { font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
-.pdf-file-row .date { font-size: 11.5px; color: var(--ink-soft); }
 
 /* ---------- FAB ---------- */
 .fab {

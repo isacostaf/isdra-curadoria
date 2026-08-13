@@ -1,11 +1,17 @@
 node_modules/
+.env
+.env.local
+*.log
+.DS_Store
+.vercel
+
+# arquivos locais legados (o app agora guarda tudo no Supabase) —
+# mantidos só para quem ainda precisa rodar a migração local -> nuvem
+data/db.json
+data/MIGRATION_CREDENTIALS.txt
 uploads/project/*
 uploads/folders/*
 uploads/items/*
 !uploads/project/.gitkeep
 !uploads/folders/.gitkeep
 !uploads/items/.gitkeep
-data/db.json
-data/MIGRATION_CREDENTIALS.txt
-*.log
-.DS_Store

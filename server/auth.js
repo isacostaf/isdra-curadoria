@@ -1,4 +1,10 @@
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('Falta a variável de ambiente JWT_SECRET (veja .env.example).');
+}
 
 function normalizeCode(code) {
   return (code || '').trim().toLowerCase().replace(/\s+/g, '');
@@ -18,4 +24,20 @@ function verifyPassword(password, salt, hash) {
   return crypto.timingSafeEqual(check, stored);
 }
 
-module.exports = { normalizeCode, hashPassword, verifyPassword };
+// Sessões viram tokens assinados (JWT) em vez de uma tabela/Map: nenhuma
+// consulta extra ao banco é necessária pra validar cada request, o que
+// funciona bem em ambiente serverless (cada invocação é isolada).
+function signSessionToken(projectId) {
+  return jwt.sign({ projectId }, JWT_SECRET, { expiresIn: '30d' });
+}
+
+function verifySessionToken(token) {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    return payload.projectId ? payload : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+module.exports = { normalizeCode, hashPassword, verifyPassword, signSessionToken, verifySessionToken };
