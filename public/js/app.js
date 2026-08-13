@@ -364,27 +364,29 @@ async function renderHomeView() {
   appEl.innerHTML = `
     <div class="view-enter">
       <div class="hero">
-        <p class="hero-sub">Curadoria de móveis para o seu apê — organizada por ambiente, do achado à ficha completa.</p>
+        <div class="hero-title-row">
+          <img src="/icon/star-icon.png" alt="" class="hero-star">
+          <h1 class="hero-title">BEM VINDO,</h1>
+        </div>
+
+        <p class="hero-sub">
+          Do projeto de arquitetura à última peça escolhida, organize referências, móveis e ideias de forma simples e visual.
       </div>
       <div class="doc-row">
-        <div class="doc-card grad-peach" id="btn-architecture">
-          <div class="doc-card-glyph">${ICONS.ruler}</div>
-          <div>
-            <div class="doc-card-title">Projeto de Arquitetura</div>
-            <div class="doc-card-sub" id="architecture-status">Carregando…</div>
-          </div>
-        </div>
-        <div class="doc-card grad-butter" id="btn-notebook">
-          <div class="doc-card-glyph">${ICONS.book}</div>
-          <div>
-            <div class="doc-card-title">Caderno de Mobiliário</div>
-            <div class="doc-card-sub" id="notebook-status">Carregando…</div>
-          </div>
-        </div>
+        <button class="doc-pill" id="btn-architecture" type="button">
+          <span class="doc-pill-icon">${ICONS.ruler}</span>
+          <span class="doc-pill-label">Projeto de Arquitetura</span>
+          <span class="doc-pill-status-dot" id="architecture-status"></span>
+        </button>
+        <button class="doc-pill" id="btn-notebook" type="button">
+          <span class="doc-pill-icon">${ICONS.book}</span>
+          <span class="doc-pill-label">Caderno de Mobiliário</span>
+          <span class="doc-pill-status-dot" id="notebook-status"></span>
+        </button>
       </div>
 
       <div class="section-head">
-        <h2>Minhas pastas <span class="section-count" id="folder-count"></span></h2>
+        <h2 class="hero-title">MINHA COLETÂNEA <span class="section-count" id="folder-count"></span></h2>
         <button class="btn btn-primary btn-sm" id="btn-new-folder">${ICONS.plus} Nova pasta</button>
       </div>
       <div class="grid" id="folders-grid">
@@ -417,11 +419,8 @@ async function loadProjectStatus() {
 function setDocStatus(elId, fileInfo) {
   const el = document.getElementById(elId);
   if (!el) return;
-  if (fileInfo) {
-    el.innerHTML = `<span class="dot"></span>${esc(fileInfo.originalName)}`;
-  } else {
-    el.innerHTML = `<span class="dot"></span>Nenhum PDF adicionado`;
-  }
+  el.classList.toggle('on', !!fileInfo);
+  el.title = fileInfo ? fileInfo.originalName : 'Nenhum PDF adicionado';
 }
 
 async function loadFolders() {
