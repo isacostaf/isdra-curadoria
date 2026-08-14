@@ -133,11 +133,11 @@ async function createItem(fields) {
     .insert({
       project_id: fields.projectId,
       folder_id: fields.folderId,
-      name: fields.name || '',
+      store_type: fields.storeType,
       photo_path: fields.photoPath || null,
       price: fields.price,
       measurements: fields.measurements || '',
-      link: fields.link,
+      link: fields.link || null,
       store: fields.store || '',
       notes: fields.notes || ''
     })
@@ -149,11 +149,11 @@ async function createItem(fields) {
 
 async function updateItem(id, projectId, fields) {
   const patch = {};
-  if (fields.name !== undefined) patch.name = fields.name;
+  if (fields.storeType !== undefined) patch.store_type = fields.storeType;
   if (fields.photoPath !== undefined) patch.photo_path = fields.photoPath;
   if (fields.price !== undefined) patch.price = fields.price;
   if (fields.measurements !== undefined) patch.measurements = fields.measurements;
-  if (fields.link !== undefined) patch.link = fields.link;
+  if (fields.link !== undefined) patch.link = fields.link || null;
   if (fields.store !== undefined) patch.store = fields.store;
   if (fields.notes !== undefined) patch.notes = fields.notes;
   const { data, error } = await supabase.from('items').update(patch).eq('id', id).eq('project_id', projectId).select('*').single();
@@ -171,7 +171,7 @@ function itemPayload(item) {
   return {
     id: item.id,
     folderId: item.folder_id,
-    name: item.name,
+    storeType: item.store_type,
     photo: item.photo_path,
     photoUrl: publicUrlFor(item.photo_path),
     price: item.price,

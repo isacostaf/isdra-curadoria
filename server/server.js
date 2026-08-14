@@ -230,8 +230,11 @@ app.post('/api/folders/:id/items', uploadItemPhoto.single('photo'), asyncRoute(a
   const folder = await store.findFolder(req.params.id, req.projectId);
   if (!folder) return res.status(404).json({ error: 'Pasta não encontrada.' });
 
+  const storeType = (req.body.storeType || '').trim();
+  if (storeType !== 'fisica' && storeType !== 'online') {
+    return res.status(400).json({ error: 'Escolha se a loja é física ou online.' });
+  }
   const link = normalizeLink(req.body.link);
-  if (!link) return res.status(400).json({ error: 'O link do produto é obrigatório.' });
 
   let photoPath = null;
   if (req.file) {
@@ -242,7 +245,7 @@ app.post('/api/folders/:id/items', uploadItemPhoto.single('photo'), asyncRoute(a
   const item = await store.createItem({
     projectId: req.projectId,
     folderId: folder.id,
-    name: (req.body.name || '').trim(),
+    storeType,
     photoPath,
     price: req.body.price ? Number(req.body.price) : null,
     measurements: (req.body.measurements || '').trim(),
@@ -264,12 +267,14 @@ app.put('/api/items/:id', uploadItemPhoto.single('photo'), asyncRoute(async (req
   if (!existing) return res.status(404).json({ error: 'Item não encontrado.' });
 
   const fields = {};
-  if (req.body.link !== undefined) {
-    const link = normalizeLink(req.body.link);
-    if (!link) return res.status(400).json({ error: 'O link do produto é obrigatório.' });
-    fields.link = link;
+  if (req.body.storeType !== undefined) {
+    const storeType = (req.body.storeType || '').trim();
+    if (storeType !== 'fisica' && storeType !== 'online') {
+      return res.status(400).json({ error: 'Escolha se a loja é física ou online.' });
+    }
+    fields.storeType = storeType;
   }
-  if (req.body.name !== undefined) fields.name = req.body.name.trim();
+  if (req.body.link !== undefined) fields.link = normalizeLink(req.body.link);
   if (req.body.price !== undefined) fields.price = req.body.price === '' ? null : Number(req.body.price);
   if (req.body.measurements !== undefined) fields.measurements = req.body.measurements.trim();
   if (req.body.store !== undefined) fields.store = req.body.store.trim();

@@ -463,12 +463,9 @@ async function loadFolders() {
 function folderCardHtml(f) {
   return `
     <div class="tile folder-card" data-folder-id="${f.id}">
-      <div class="tile-media">
-        <img class="tile-img" src="${f.photoUrl}" alt="${esc(f.name)}" loading="lazy" />
-        <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
-      </div>
-      <div class="tile-body">
-        <div class="tile-tags"><span class="tile-tag">${f.itemCount} ${f.itemCount === 1 ? 'item' : 'itens'}</span></div>
+      <img class="tile-img" src="${f.photoUrl}" alt="${esc(f.name)}" loading="lazy" />
+      <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
+      <div class="tile-panel">
         <h3 class="tile-title">${esc(f.name)}</h3>
         <div class="tile-cta">Ver pasta ${ICONS.arrowRight}</div>
       </div>
@@ -755,8 +752,11 @@ async function loadItems(folderId) {
   }
 }
 
+const STORE_TYPE_LABELS = { fisica: 'Loja física', online: 'Loja online' };
+
 function itemDisplayTitle(item) {
-  return item.name && item.name.trim() ? item.name : `Produto em ${hostFromUrl(item.link)}`;
+  if (item.store && item.store.trim()) return item.store;
+  return STORE_TYPE_LABELS[item.storeType] || 'Produto';
 }
 
 function itemCardHtml(item) {
@@ -765,20 +765,17 @@ function itemCardHtml(item) {
   const media = hasPhoto
     ? `<img class="tile-img" src="${item.photoUrl}" alt="${esc(itemDisplayTitle(item))}" loading="lazy" />`
     : `<div class="tile-placeholder ${gradFor(item.id)}">${ICONS.sofa}</div>`;
-  const tags = [];
-  if (price) tags.push(`<span class="tile-tag price">${esc(price)}</span>`);
-  if (item.measurements) tags.push(`<span class="tile-tag">${esc(item.measurements)}</span>`);
+  const storeTypeLabel = STORE_TYPE_LABELS[item.storeType] || '';
   return `
     <div class="tile item-card" data-item-id="${item.id}">
-      <div class="tile-media">
-        ${media}
-        <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
-      </div>
-      <div class="tile-body">
-        <div class="tile-tags">${tags.join('')}</div>
-        <h3 class="tile-title">${esc(itemDisplayTitle(item))}</h3>
-        ${item.store ? `<p class="tile-desc">${esc(item.store)}</p>` : ''}
-        <div class="tile-cta">Ver ficha ${ICONS.arrowRight}</div>
+      ${media}
+      <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
+      <div class="tile-panel">
+        ${storeTypeLabel ? `<div class="tile-tags"><span class="tile-tag">${esc(storeTypeLabel)}</span></div>` : ''}
+        ${price ? `<div class="tile-price">${esc(price)}</div>` : ''}
+        ${item.measurements ? `<div class="tile-line">${esc(item.measurements)}</div>` : ''}
+        ${item.store ? `<div class="tile-line">${esc(item.store)}</div>` : ''}
+        
       </div>
     </div>`;
 }
@@ -792,9 +789,22 @@ function openItemFormModal(folderId, item = null) {
     <div class="modal-title-row"><h2>${isEdit ? 'Editar item' : 'Novo item'}</h2><button class="modal-close" data-modal-close>${ICONS.close}</button></div>
     <form id="item-form">
       <div class="field">
-        <label>Link do produto <span class="req">*</span></label>
-        <input type="text" name="link" placeholder="https://loja.com/produto" value="${isEdit ? esc(item.link) : ''}" required />
-        <div class="field-hint">O único campo obrigatório. Cole o link da loja onde encontrou o produto.</div>
+        <label>Loja física ou online <span class="req">*</span></label>
+        <div class="store-type-toggle">
+          <label class="store-type-option">
+            <input type="radio" name="storeType" value="fisica" ${isEdit && item.storeType === 'fisica' ? 'checked' : ''} required />
+            <span>Loja física</span>
+          </label>
+          <label class="store-type-option">
+            <input type="radio" name="storeType" value="online" ${isEdit && item.storeType === 'online' ? 'checked' : ''} required />
+            <span>Loja online</span>
+          </label>
+        </div>
+        <div class="field-hint">O único campo obrigatório.</div>
+      </div>
+      <div class="field">
+        <label>Link do produto <span class="opt">(opcional)</span></label>
+        <input type="text" name="link" placeholder="https://loja.com/produto" value="${isEdit ? esc(item.link || '') : ''}" />
       </div>
       <div class="field">
         <label>Foto do produto <span class="opt">(opcional)</span></label>
@@ -809,10 +819,6 @@ function openItemFormModal(folderId, item = null) {
         </div>
         <input type="file" accept="image/*" name="photo" id="item-photo-input" style="display:none" />
         <input type="hidden" name="removePhoto" id="item-remove-photo-flag" value="false" />
-      </div>
-      <div class="field">
-        <label>Nome do produto <span class="opt">(opcional)</span></label>
-        <input type="text" name="name" placeholder="Ex: Cadeira Windsor" value="${isEdit ? esc(item.name) : ''}" maxlength="100" />
       </div>
       <div class="field-row">
         <div class="field">
@@ -922,7 +928,9 @@ async function confirmDeleteItem(item, folderId) {
 // ---------------------------------------------------------------
 function openItemDetailModal(item, folderId) {
   const price = fmtPrice(item.price);
+  const storeTypeLabel = STORE_TYPE_LABELS[item.storeType] || '';
   const stats = [];
+  if (storeTypeLabel) stats.push({ k: 'Tipo de loja', v: storeTypeLabel, icon: ICONS.store });
   if (price) stats.push({ k: 'Preço', v: price, icon: ICONS.tag });
   if (item.measurements) stats.push({ k: 'Medidas', v: item.measurements, icon: ICONS.rulerSmall });
   if (item.store) stats.push({ k: 'Loja', v: item.store, icon: ICONS.store });
@@ -945,7 +953,7 @@ function openItemDetailModal(item, folderId) {
     ${item.notes ? `
       <div class="ficha-section-title">${ICONS.note} Observações</div>
       <div class="ficha-notes">${esc(item.notes)}</div>` : ''}
-    <a class="btn btn-primary ficha-link-btn" href="${esc(item.link)}" target="_blank" rel="noopener">${ICONS.external} Ver produto — ${esc(hostFromUrl(item.link))}</a>
+    ${item.link ? `<a class="btn btn-primary ficha-link-btn" href="${esc(item.link)}" target="_blank" rel="noopener">${ICONS.external} Ver produto — ${esc(hostFromUrl(item.link))}</a>` : ''}
     <div class="ficha-actions">
       <button class="btn btn-ghost" id="ficha-edit-btn">${ICONS.edit} Editar</button>
       <button class="btn btn-danger" id="ficha-delete-btn">${ICONS.trash} Excluir</button>

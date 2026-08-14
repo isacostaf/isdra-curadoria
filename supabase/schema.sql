@@ -31,18 +31,24 @@ create table if not exists folders (
 );
 
 -- ---------- items (produtos dentro de cada pasta) ----------
+-- store_type: 'fisica' | 'online' — único campo obrigatório do produto.
 create table if not exists items (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,
   folder_id uuid not null references folders(id) on delete cascade,
-  name text not null default '',
+  store_type text not null default 'online',
   photo_path text,           -- opcional
   price numeric,
   measurements text not null default '',
-  link text not null,
+  link text,                 -- opcional
   store text not null default '',
   notes text not null default ''
 );
+
+-- ---------- migração (rode se a tabela items já existia sem store_type) ----------
+alter table items add column if not exists store_type text not null default 'online';
+alter table items alter column link drop not null;
+alter table items drop column if exists name;
 
 create index if not exists folders_project_id_idx on folders(project_id);
 create index if not exists items_project_id_idx on items(project_id);

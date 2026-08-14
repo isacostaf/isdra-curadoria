@@ -5,6 +5,10 @@ node_modules/
 .DS_Store
 .vercel
 
+# projeto de referência (outro projeto, só usado pra copiar o fundo dinâmico
+# em public/js/dynamic-background.js) — não faz parte deste app
+PraticPilates/
+
 # arquivos locais legados (o app agora guarda tudo no Supabase) —
 # mantidos só para quem ainda precisa rodar a migração local -> nuvem
 data/db.json
