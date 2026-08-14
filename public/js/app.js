@@ -41,7 +41,58 @@ const ICONS = {
   arrowRight: svgIcon('<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>'),
 };
 
-document.getElementById('brand-mark').innerHTML = ICONS.sparkle;
+// ---------------------------------------------------------------
+// hero headline — typewriter effect cycling through playful lines
+// ---------------------------------------------------------------
+const HERO_PHRASES = [
+  "What are we buying today?",
+  "Already picked the dining chairs?",
+  "Welcome — how can I help you?",
+  "Found the perfect sofa yet?",
+  "Let's furnish something great.",
+  "Still hunting for the right rug?",
+  "Ready to fill this room?",
+  "Your next favorite piece awaits.",
+  "Coffee table crisis? Let's fix that.",
+  "Lamps, chairs, tables... let's go."
+];
+let heroTypeToken = 0;
+function startHeroTyping(el) {
+  const myToken = ++heroTypeToken;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    el.textContent = HERO_PHRASES[0];
+    return;
+  }
+  let phraseIdx = 0;
+  let charIdx = 0;
+  let deleting = false;
+
+  function tick() {
+    if (myToken !== heroTypeToken || !document.body.contains(el)) return;
+    const phrase = HERO_PHRASES[phraseIdx];
+    if (!deleting) {
+      charIdx++;
+      el.textContent = phrase.slice(0, charIdx);
+      if (charIdx === phrase.length) {
+        deleting = true;
+        setTimeout(tick, 1800);
+        return;
+      }
+      setTimeout(tick, 38 + Math.random() * 45);
+    } else {
+      charIdx--;
+      el.textContent = phrase.slice(0, charIdx);
+      if (charIdx === 0) {
+        deleting = false;
+        phraseIdx = (phraseIdx + 1) % HERO_PHRASES.length;
+        setTimeout(tick, 400);
+        return;
+      }
+      setTimeout(tick, 20);
+    }
+  }
+  tick();
+}
 
 // gradient placeholders for photo-less product tiles
 const GRADIENTS = ['grad-peach', 'grad-sage', 'grad-butter', 'grad-rose'];
@@ -168,7 +219,6 @@ function parseHash() {
   return { view: 'home' };
 }
 window.addEventListener('hashchange', route);
-document.getElementById('brand-home').addEventListener('click', () => { location.hash = ''; });
 
 function route() {
   const r = parseHash();
@@ -215,92 +265,122 @@ function renderTopbarProject() {
 
 function renderGate(initialTab, successMessage) {
   appShell.style.display = 'none';
+  if (initialTab === 'register') renderGateRegister(successMessage);
+  else renderGateLogin(successMessage);
+}
+
+function renderGateLogin(successMessage) {
   gateRoot.innerHTML = `
     <div class="gate-screen">
-      <div class="gate-brand">
-        <span class="brand-mark">${ICONS.sparkle}</span>
-        <span class="brand-text">ISDRA</span>
-      </div>
-      <div class="gate-card">
-        <div class="gate-tabs">
-          <button class="gate-tab ${initialTab === 'register' ? '' : 'active'}" data-tab="login" type="button">Entrar</button>
-          <button class="gate-tab ${initialTab === 'register' ? 'active' : ''}" data-tab="register" type="button">Criar projeto</button>
+      <div class="gate-flow">
+        <div class="gate-step-code" id="gate-step-code">
+          <div class="gate-title">
+            <h1 class="gate-headline">Bem vindo!</h1>
+            <img src="/icon/star-icon-cream.png" alt="" class="gate-star-login">
+          </div>
+          ${successMessage ? `<div class="gate-success">${esc(successMessage)}</div>` : ''}
+          <form id="gate-code-form" class="gate-input-form" novalidate>
+            <div class="gate-input-bar">
+              <input type="text" id="gate-code-input" placeholder="digite o código do seu projeto" autocomplete="off" required maxlength="60" />
+              <button type="submit" class="gate-arrow-btn" aria-label="Avançar">${ICONS.arrowRight}</button>
+            </div>
+          </form>
+          <button type="button" class="gate-link" id="gate-link-create-1">ainda não tem um projeto? <strong>criar um projeto</strong></button>
         </div>
-        <div id="gate-tab-content"></div>
+
+        <div class="gate-step-password" id="gate-step-password" hidden>
+          <button type="button" class="gate-back-link" id="gate-back-to-code">${ICONS.back} <span id="gate-back-code-label">trocar código</span></button>
+          <p class="gate-headline gate-headline-nowrap">Seu projeto está protegido!</p>
+          <form id="gate-password-form" class="gate-input-form" novalidate>
+            <div class="gate-input-bar">
+              <input type="password" id="gate-password-input" placeholder="digite sua senha" autocomplete="current-password" required />
+              <button type="submit" class="gate-arrow-btn" aria-label="Entrar">${ICONS.arrowRight}</button>
+            </div>
+          </form>
+          <p class="gate-flow-sub-2">Caso não saiba sua senha entre em contato com o administrador do projeto</p>
+          <button type="button" class="gate-link" id="gate-link-create-2">ainda não tem um projeto? <strong>criar um projeto</strong></button>
+        </div>
+
+        <div class="field-error" id="gate-error" style="display:none;"></div>
       </div>
-      <p class="gate-hint">Cada projeto tem seu próprio código e senha — compartilhe os dois com quem também vai colaborar nas escolhas.</p>
     </div>`;
 
-  gateRoot.querySelectorAll('.gate-tab').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      gateRoot.querySelectorAll('.gate-tab').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      renderGateTab(btn.getAttribute('data-tab'));
-    });
+  const stepCode = document.getElementById('gate-step-code');
+  const codeForm = document.getElementById('gate-code-form');
+  const codeInput = document.getElementById('gate-code-input');
+  const stepPassword = document.getElementById('gate-step-password');
+  const passwordForm = document.getElementById('gate-password-form');
+  const passwordInput = document.getElementById('gate-password-input');
+  const errEl = document.getElementById('gate-error');
+
+  codeForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!codeInput.value.trim()) return;
+    errEl.style.display = 'none';
+    if (stepPassword.hidden) {
+      document.getElementById('gate-back-code-label').textContent = `trocar código (${codeInput.value.trim()})`;
+      stepCode.hidden = true;
+      stepPassword.hidden = false;
+      passwordInput.focus();
+    }
   });
-  renderGateTab(initialTab === 'register' ? 'register' : 'login', successMessage);
+
+  document.getElementById('gate-back-to-code').addEventListener('click', () => {
+    errEl.style.display = 'none';
+    passwordInput.value = '';
+    stepPassword.hidden = true;
+    stepCode.hidden = false;
+    codeInput.focus();
+    codeInput.select();
+  });
+
+  passwordForm.addEventListener('submit', (e) => onGateLoginSubmit(e, codeInput, passwordInput, errEl));
+
+  document.getElementById('gate-link-create-1').addEventListener('click', () => renderGate('register'));
+  document.getElementById('gate-link-create-2').addEventListener('click', () => renderGate('register'));
 }
 
-function renderGateTab(tab, successMessage) {
-  const content = document.getElementById('gate-tab-content');
-  if (tab === 'register') {
-    content.innerHTML = `
-      <h2 class="gate-title">Criar novo projeto</h2>
-      <p class="gate-sub">Escolha um código e uma senha — quem tiver os dois vai poder ver e editar as pastas deste projeto.</p>
-      ${successMessage ? `<div class="gate-success">${esc(successMessage)}</div>` : ''}
-      <form id="register-form">
-        <div class="field">
-          <label>Código do projeto <span class="req">*</span></label>
-          <input type="text" name="code" placeholder="Ex: projeto-ana-luisa" required maxlength="60" />
-          <div class="field-hint">É o que as outras pessoas vão digitar pra entrar neste projeto. Use letras, números e hífens.</div>
-        </div>
-        <div class="field">
-          <label>Senha <span class="req">*</span></label>
-          <input type="password" name="password" placeholder="Mínimo 4 caracteres" required minlength="4" />
-        </div>
-        <div class="field-error" id="register-error" style="display:none;"></div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary btn-block" id="register-submit">Criar projeto e entrar</button>
-        </div>
-      </form>`;
-    document.getElementById('register-form').addEventListener('submit', onRegisterSubmit);
-  } else {
-    content.innerHTML = `
-      <h2 class="gate-title">Entrar no projeto</h2>
-      <p class="gate-sub">Digite o código e a senha que foram compartilhados com você.</p>
-      ${successMessage ? `<div class="gate-success">${esc(successMessage)}</div>` : ''}
-      <form id="login-form">
-        <div class="field">
-          <label>Código do projeto <span class="req">*</span></label>
-          <input type="text" name="code" placeholder="Ex: projeto-ana-luisa" required maxlength="60" />
-        </div>
-        <div class="field">
-          <label>Senha <span class="req">*</span></label>
-          <input type="password" name="password" placeholder="Sua senha" required />
-        </div>
-        <div class="field-error" id="login-error" style="display:none;"></div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary btn-block" id="login-submit">Entrar</button>
-        </div>
-      </form>`;
-    document.getElementById('login-form').addEventListener('submit', onLoginSubmit);
-  }
+function renderGateRegister(successMessage) {
+  gateRoot.innerHTML = `
+    <div class="gate-screen">
+      <div class="gate-card">
+        <h2 class="gate-title">Criar novo projeto</h2>
+        <p class="gate-sub">Escolha um código e uma senha — quem tiver os dois vai poder ver e editar as pastas deste projeto.</p>
+        ${successMessage ? `<div class="gate-success">${esc(successMessage)}</div>` : ''}
+        <form id="register-form">
+          <div class="field">
+            <label>Código do projeto <span class="req">*</span></label>
+            <input type="text" name="code" placeholder="Ex: projeto-ana-luisa" required maxlength="60" />
+            <div class="field-hint">É o que as outras pessoas vão digitar pra entrar neste projeto. Use letras, números e hífens.</div>
+          </div>
+          <div class="field">
+            <label>Senha <span class="req">*</span></label>
+            <input type="password" name="password" placeholder="Mínimo 4 caracteres" required minlength="4" />
+          </div>
+          <div class="field-error" id="register-error" style="display:none;"></div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-block" id="register-submit">Criar projeto e entrar</button>
+          </div>
+        </form>
+        <button type="button" class="gate-link gate-link-center" id="gate-link-login">já tem um projeto? <strong>entrar</strong></button>
+      </div>
+    </div>`;
+  document.getElementById('register-form').addEventListener('submit', onRegisterSubmit);
+  document.getElementById('gate-link-login').addEventListener('click', () => renderGate('login'));
 }
 
-async function onLoginSubmit(e) {
+async function onGateLoginSubmit(e, codeInput, passwordInput, errEl) {
   e.preventDefault();
-  const form = e.target;
-  const errEl = document.getElementById('login-error');
+  const code = codeInput.value.trim();
+  const password = passwordInput.value;
   errEl.style.display = 'none';
-  const btn = document.getElementById('login-submit');
+  const btn = e.target.querySelector('.gate-arrow-btn');
   btn.disabled = true;
-  btn.textContent = 'Entrando…';
   try {
-    const fd = new FormData(form);
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: fd.get('code'), password: fd.get('password') })
+      body: JSON.stringify({ code, password })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Não foi possível entrar.');
@@ -310,7 +390,6 @@ async function onLoginSubmit(e) {
     errEl.textContent = err.message;
     errEl.style.display = 'block';
     btn.disabled = false;
-    btn.textContent = 'Entrar';
   }
 }
 
@@ -365,25 +444,30 @@ async function renderHomeView() {
   appEl.innerHTML = `
     <div class="view-enter">
       <div class="hero">
-        <div class="hero-title-row">
-          <img src="/icon/star-icon.png" alt="" class="hero-star">
-          <h1 class="hero-title">BEM VINDO,</h1>
-        </div>
+        <div class="hero-content">
+          <div class="hero-title-row">
+            <img src="/icon/star-icon-cream.png" alt="" class="hero-star">
+            <h1 class="hero-title" id="hero-typed-title"><span id="hero-typed-text"></span><span class="hero-cursor">|</span></h1>
+          </div>
 
-        <p class="hero-sub">
-          Do projeto de arquitetura à última peça escolhida, organize referências, móveis e ideias de forma simples e visual.
-      </div>
-      <div class="doc-row">
-        <button class="doc-pill" id="btn-architecture" type="button">
-          <span class="doc-pill-icon">${ICONS.ruler}</span>
-          <span class="doc-pill-label">Projeto de Arquitetura</span>
-          <span class="doc-pill-status-dot" id="architecture-status"></span>
-        </button>
-        <button class="doc-pill" id="btn-notebook" type="button">
-          <span class="doc-pill-icon">${ICONS.book}</span>
-          <span class="doc-pill-label">Caderno de Mobiliário</span>
-          <span class="doc-pill-status-dot" id="notebook-status"></span>
-        </button>
+          <p class="hero-sub">
+            Do projeto de arquitetura à última peça escolhida, organize referências, móveis e ideias de forma simples e visual.
+          </p>
+
+          <div class="doc-row">
+            <button class="doc-pill" id="btn-architecture" type="button">
+              <span class="doc-pill-icon">${ICONS.ruler}</span>
+              <span class="doc-pill-label">Projeto de Arquitetura</span>
+              <span class="doc-pill-status-dot" id="architecture-status"></span>
+            </button>
+            <button class="doc-pill" id="btn-notebook" type="button">
+              <span class="doc-pill-icon">${ICONS.book}</span>
+              <span class="doc-pill-label">Caderno de Mobiliário</span>
+              <span class="doc-pill-status-dot" id="notebook-status"></span>
+            </button>
+          </div>
+        </div>
+        <img src="/icon/title-icon.png" alt="ISDRA" class="hero-logo">
       </div>
 
       <div class="section-head">
@@ -399,6 +483,7 @@ async function renderHomeView() {
   document.getElementById('btn-architecture').addEventListener('click', () => openProjectModal('architecturePdf'));
   document.getElementById('btn-notebook').addEventListener('click', () => openProjectModal('notebookPdf'));
   document.getElementById('btn-new-folder').addEventListener('click', () => openFolderFormModal());
+  startHeroTyping(document.getElementById('hero-typed-text'));
 
   loadProjectStatus();
   loadFolders();
@@ -771,11 +856,10 @@ function itemCardHtml(item) {
       ${media}
       <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
       <div class="tile-panel">
-        ${storeTypeLabel ? `<div class="tile-tags"><span class="tile-tag">${esc(storeTypeLabel)}</span></div>` : ''}
-        ${price ? `<div class="tile-price">${esc(price)}</div>` : ''}
-        ${item.measurements ? `<div class="tile-line">${esc(item.measurements)}</div>` : ''}
-        ${item.store ? `<div class="tile-line">${esc(item.store)}</div>` : ''}
-        
+        <div class="tile-tags">${storeTypeLabel ? `<span class="tile-tag store-${esc(item.storeType)}">${esc(storeTypeLabel)}</span>` : ''}</div>
+        <div class="tile-price">${price ? esc(price) : ''}</div>
+        <div class="tile-line">${item.measurements ? esc(item.measurements) : ''}</div>
+        <div class="tile-line">${item.store ? esc(item.store) : ''}</div>
       </div>
     </div>`;
 }
