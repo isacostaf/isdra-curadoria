@@ -38,6 +38,7 @@ const ICONS = {
   bag: svgIcon('<path d="M6 8h12l-1 12H7L6 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>'),
   eye: svgIcon('<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>'),
   note: svgIcon('<path d="M5 4h14v16l-3-2-2 2-2-2-2 2-2-2-3 2V4Z"/><path d="M8 9h8M8 13h5"/>'),
+  arrowRight: svgIcon('<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>'),
 };
 
 document.getElementById('brand-mark').innerHTML = ICONS.sparkle;
@@ -464,12 +465,12 @@ function folderCardHtml(f) {
     <div class="tile folder-card" data-folder-id="${f.id}">
       <div class="tile-media">
         <img class="tile-img" src="${f.photoUrl}" alt="${esc(f.name)}" loading="lazy" />
-        <div class="tile-scrim"></div>
         <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
-        <div class="tile-overlay is-light">
-          <div class="tile-title">${esc(f.name)}</div>
-          <div class="tile-sub">${f.itemCount} ${f.itemCount === 1 ? 'item' : 'itens'}</div>
-        </div>
+      </div>
+      <div class="tile-body">
+        <div class="tile-tags"><span class="tile-tag">${f.itemCount} ${f.itemCount === 1 ? 'item' : 'itens'}</span></div>
+        <h3 class="tile-title">${esc(f.name)}</h3>
+        <div class="tile-cta">Ver pasta ${ICONS.arrowRight}</div>
       </div>
     </div>`;
 }
@@ -763,21 +764,21 @@ function itemCardHtml(item) {
   const hasPhoto = !!item.photoUrl;
   const media = hasPhoto
     ? `<img class="tile-img" src="${item.photoUrl}" alt="${esc(itemDisplayTitle(item))}" loading="lazy" />`
-    : `<div class="tile-placeholder">${ICONS.sofa}</div>`;
-  const chips = [];
-  if (price) chips.push(`<span class="chip price">${esc(price)}</span>`);
-  if (item.measurements) chips.push(`<span class="chip">${esc(item.measurements)}</span>`);
+    : `<div class="tile-placeholder ${gradFor(item.id)}">${ICONS.sofa}</div>`;
+  const tags = [];
+  if (price) tags.push(`<span class="tile-tag price">${esc(price)}</span>`);
+  if (item.measurements) tags.push(`<span class="tile-tag">${esc(item.measurements)}</span>`);
   return `
     <div class="tile item-card" data-item-id="${item.id}">
-      <div class="tile-media ${hasPhoto ? '' : gradFor(item.id)}">
+      <div class="tile-media">
         ${media}
-        ${hasPhoto ? '<div class="tile-scrim"></div>' : ''}
         <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
-        <div class="tile-overlay ${hasPhoto ? 'is-light' : 'is-dark'}">
-          <div class="tile-title">${esc(itemDisplayTitle(item))}</div>
-          ${item.store ? `<div class="tile-sub">${esc(item.store)}</div>` : ''}
-          ${chips.length ? `<div class="card-meta-row">${chips.join('')}</div>` : ''}
-        </div>
+      </div>
+      <div class="tile-body">
+        <div class="tile-tags">${tags.join('')}</div>
+        <h3 class="tile-title">${esc(itemDisplayTitle(item))}</h3>
+        ${item.store ? `<p class="tile-desc">${esc(item.store)}</p>` : ''}
+        <div class="tile-cta">Ver ficha ${ICONS.arrowRight}</div>
       </div>
     </div>`;
 }

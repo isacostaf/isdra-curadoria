@@ -331,12 +331,15 @@ svg { display: block; }
 
 .tile {
   position: relative;
+  display: flex;
+  flex-direction: column;
   border-radius: var(--radius-lg);
   overflow: hidden;
   cursor: pointer;
   box-shadow: var(--shadow-card);
   transition: transform 0.2s ease;
-  background: var(--paper);
+  background: var(--cream-deep);
+  border: 1px solid var(--line);
 }
 .tile:hover { transform: translateY(-3px); }
 .tile:active { transform: scale(0.98); }
@@ -344,81 +347,90 @@ svg { display: block; }
 .tile-media {
   position: relative;
   width: 100%;
-  aspect-ratio: 1 / 1.12;
+  aspect-ratio: 4 / 3.6;
   overflow: hidden;
 }
-.item-card .tile-media { aspect-ratio: 1 / 1.05; }
 
 .tile-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tile-placeholder {
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
+  background: var(--paper);
 }
-.tile-placeholder svg { width: 32px; height: 32px; color: var(--ink); opacity: 0.32; }
-
-.tile-scrim {
-  position: absolute; inset: auto 0 0 0; height: 62%;
-  background: linear-gradient(to top, rgba(20, 17, 12, 0.68), rgba(20, 17, 12, 0));
-  pointer-events: none;
-}
+.tile-placeholder svg { width: 30px; height: 30px; color: var(--ink); opacity: 0.3; }
 
 .tile-kebab {
-  position: absolute; top: 10px; right: 10px;
-  width: 30px; height: 30px; border-radius: 50%;
-  background: rgba(255, 255, 255, 0.95);
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
   border: none;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 4px 14px rgba(20, 17, 12, 0.2);
   cursor: pointer;
-  z-index: 2;
+  box-shadow: 0 4px 12px rgba(20, 17, 12, 0.18);
   transition: transform 0.15s ease;
 }
 .tile-kebab:hover { transform: scale(1.08); }
-.tile-kebab svg { width: 14px; height: 14px; color: var(--ink); }
+.tile-kebab svg { width: 13px; height: 13px; color: var(--ink); }
 
-.tile-overlay {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  padding: 14px 15px;
-  z-index: 1;
+.tile-body {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px 16px;
 }
-.tile-overlay.is-light .tile-title { color: #fff; }
-.tile-overlay.is-light .tile-sub { color: rgba(255, 255, 255, 0.82); }
-.tile-overlay.is-dark .tile-title { color: var(--ink); }
-.tile-overlay.is-dark .tile-sub { color: var(--ink-soft); }
+
+.tile-tags { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin-bottom: 10px; }
+.tile-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  background: rgba(32, 28, 22, 0.07);
+  border-radius: 100px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.tile-tag.price { color: var(--accent); }
 
 .tile-title {
+  font-family: 'League Spartan', 'Inter', sans-serif;
   font-weight: 700;
-  font-size: 13.5px;
-  line-height: 1.28;
-  margin: 0 0 3px;
+  font-size: 20px;
+  letter-spacing: -0.3px;
+  line-height: 1.1;
+  color: var(--ink);
+  margin: 0 0 4px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.tile-sub { font-size: 11px; font-weight: 500; }
-
-.card-meta-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
-.chip {
-  font-size: 10.5px;
-  font-weight: 700;
-  padding: 4px 9px;
-  border-radius: 100px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--ink);
-  border: 1px solid rgba(32, 28, 22, 0.06);
+.tile-desc {
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  line-height: 1.42;
+  margin: 0 0 10px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
-.chip.price { color: var(--accent); }
+
+.tile-cta {
+  display: flex; align-items: center; gap: 6px;
+  font-weight: 700; font-size: 13px;
+  color: var(--ink);
+  margin-top: 4px;
+}
+.tile-cta svg { width: 14px; height: 14px; }
 
 /* ---------- gradient placeholders ---------- */
 .grad-peach { background: linear-gradient(155deg, var(--peach-1), var(--peach-2)); }
 .grad-sage { background: linear-gradient(155deg, var(--sage-1), var(--sage-2)); }
 .grad-rose { background: linear-gradient(155deg, var(--rose-1), var(--rose-2)); }
 .grad-butter { background: linear-gradient(155deg, var(--butter-1), var(--butter-2)); }
-.grad-peach .tile-placeholder svg,
-.grad-sage .tile-placeholder svg,
-.grad-rose .tile-placeholder svg,
-.grad-butter .tile-placeholder svg { opacity: 0.5; }
+.tile-placeholder.grad-peach svg,
+.tile-placeholder.grad-sage svg,
+.tile-placeholder.grad-rose svg,
+.tile-placeholder.grad-butter svg { opacity: 0.5; }
 
 /* ---------- empty state ---------- */
 .empty-state {
