@@ -8,8 +8,8 @@ import { meshGradientFragmentShader } from '/vendor/paper-shaders/shaders/mesh-g
 import { getShaderColorFromString } from '/vendor/paper-shaders/get-shader-color-from-string.js';
 import { defaultObjectSizing, ShaderFitOptions } from '/vendor/paper-shaders/shader-sizing.js';
 
-// Mesmos parâmetros do dynamic-background.tsx original.
-const colors = ['#b3ccc0', '#c3d7d9', '#d8e4c8', '#e8dcc8', '#c9dbcf', '#e4ead0'];
+// Paleta: laranja, cinza escuro e tons de verde.
+const colors = ['#1a1815', '#c9702f', '#3d4a34', '#e0954f', '#26241f', '#5a6b4f'];
 const distortion = 0.75;
 const swirl = 0.55;
 const grainMixer = 0;
