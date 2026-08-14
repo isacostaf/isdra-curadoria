@@ -210,6 +210,48 @@ function openActionSheet(items) {
   });
 }
 
+// popover suspenso que abre colado em cima do próprio botão que o
+// disparou (em vez do bottom-sheet de tela cheia do openActionSheet)
+let fabMenuKeyHandler = null;
+function closeFabMenu() {
+  const overlay = document.querySelector('.fab-menu-overlay');
+  if (overlay) overlay.remove();
+  if (fabMenuKeyHandler) {
+    document.removeEventListener('keydown', fabMenuKeyHandler);
+    fabMenuKeyHandler = null;
+  }
+}
+function openFabMenu(anchorEl, items) {
+  // items: [{ label, icon, onClick }]
+  closeFabMenu();
+  const rect = anchorEl.getBoundingClientRect();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'fab-menu-overlay';
+  const menu = document.createElement('div');
+  menu.className = 'fab-menu';
+  menu.style.right = `${window.innerWidth - rect.right}px`;
+  menu.style.bottom = `${window.innerHeight - rect.top + 12}px`;
+  menu.innerHTML = items.map((it, idx) => `
+    <div class="fab-menu-item" data-fab-idx="${idx}"><span class="ic">${it.icon}</span><span>${esc(it.label)}</span></div>
+  `).join('');
+  overlay.appendChild(menu);
+  document.body.appendChild(overlay);
+
+  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeFabMenu(); });
+  menu.querySelectorAll('[data-fab-idx]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const idx = Number(el.getAttribute('data-fab-idx'));
+      closeFabMenu();
+      items[idx].onClick();
+    });
+  });
+
+  requestAnimationFrame(() => menu.classList.add('open'));
+  fabMenuKeyHandler = (e) => { if (e.key === 'Escape') closeFabMenu(); };
+  document.addEventListener('keydown', fabMenuKeyHandler);
+}
+
 // ---------------------------------------------------------------
 // router
 // ---------------------------------------------------------------
@@ -290,7 +332,7 @@ function renderGateLogin(successMessage) {
 
         <div class="gate-step-password" id="gate-step-password" hidden>
           <button type="button" class="gate-back-link" id="gate-back-to-code">${ICONS.back} <span id="gate-back-code-label">trocar código</span></button>
-          <p class="gate-headline gate-headline-nowrap">Seu projeto está protegido!</p>
+          <p class="gate-headline gate-headline-nowrap">Digite sua senha:</p>
           <form id="gate-password-form" class="gate-input-form" novalidate>
             <div class="gate-input-bar">
               <input type="password" id="gate-password-input" placeholder="digite sua senha" autocomplete="current-password" required />
@@ -301,7 +343,7 @@ function renderGateLogin(successMessage) {
           <button type="button" class="gate-link" id="gate-link-create-2">ainda não tem um projeto? <strong>criar um projeto</strong></button>
         </div>
 
-        <div class="field-error" id="gate-error" style="display:none;"></div>
+        <div class="field-error" id="gate-error" role="alert" style="display:none;"></div>
       </div>
     </div>`;
 
@@ -313,20 +355,44 @@ function renderGateLogin(successMessage) {
   const passwordInput = document.getElementById('gate-password-input');
   const errEl = document.getElementById('gate-error');
 
-  codeForm.addEventListener('submit', (e) => {
+  function showGateError(message) {
+    errEl.textContent = message;
+    errEl.style.display = 'block';
+  }
+
+  codeInput.focus();
+
+  codeForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!codeInput.value.trim()) return;
+    const code = codeInput.value.trim();
+    if (!code) return;
     errEl.style.display = 'none';
-    if (stepPassword.hidden) {
-      document.getElementById('gate-back-code-label').textContent = `trocar código (${codeInput.value.trim()})`;
+    codeInput.classList.remove('input-invalid');
+    const arrowBtn = codeForm.querySelector('.gate-arrow-btn');
+    arrowBtn.disabled = true;
+    try {
+      const data = await api(`/api/auth/check-code?code=${encodeURIComponent(code)}`);
+      if (!data.exists) {
+        codeInput.classList.add('input-invalid');
+        showGateError('Não encontramos um projeto com esse código. Confira se digitou certo, ou crie um projeto novo.');
+        codeInput.focus();
+        codeInput.select();
+        return;
+      }
+      document.getElementById('gate-back-code-label').textContent = `trocar código (${code})`;
       stepCode.hidden = true;
       stepPassword.hidden = false;
       passwordInput.focus();
+    } catch (err) {
+      showGateError(err.message);
+    } finally {
+      arrowBtn.disabled = false;
     }
   });
 
   document.getElementById('gate-back-to-code').addEventListener('click', () => {
     errEl.style.display = 'none';
+    passwordInput.classList.remove('input-invalid');
     passwordInput.value = '';
     stepPassword.hidden = true;
     stepCode.hidden = false;
@@ -334,7 +400,7 @@ function renderGateLogin(successMessage) {
     codeInput.select();
   });
 
-  passwordForm.addEventListener('submit', (e) => onGateLoginSubmit(e, codeInput, passwordInput, errEl));
+  passwordForm.addEventListener('submit', (e) => onGateLoginSubmit(e, codeInput, passwordInput, errEl, stepCode, stepPassword));
 
   document.getElementById('gate-link-create-1').addEventListener('click', () => renderGate('register'));
   document.getElementById('gate-link-create-2').addEventListener('click', () => renderGate('register'));
@@ -343,8 +409,8 @@ function renderGateLogin(successMessage) {
 function renderGateRegister(successMessage) {
   gateRoot.innerHTML = `
     <div class="gate-screen">
-      <div class="gate-card">
-        <h2 class="gate-title">Criar novo projeto</h2>
+      <div>
+        <h1 class="gate-title">Criar novo projeto</h1>
         <p class="gate-sub">Escolha um código e uma senha — quem tiver os dois vai poder ver e editar as pastas deste projeto.</p>
         ${successMessage ? `<div class="gate-success">${esc(successMessage)}</div>` : ''}
         <form id="register-form">
@@ -357,7 +423,7 @@ function renderGateRegister(successMessage) {
             <label>Senha <span class="req">*</span></label>
             <input type="password" name="password" placeholder="Mínimo 4 caracteres" required minlength="4" />
           </div>
-          <div class="field-error" id="register-error" style="display:none;"></div>
+          <div class="field-error" id="register-error" role="alert" style="display:none;"></div>
           <div class="form-actions">
             <button type="submit" class="btn btn-primary btn-block" id="register-submit">Criar projeto e entrar</button>
           </div>
@@ -369,11 +435,12 @@ function renderGateRegister(successMessage) {
   document.getElementById('gate-link-login').addEventListener('click', () => renderGate('login'));
 }
 
-async function onGateLoginSubmit(e, codeInput, passwordInput, errEl) {
+async function onGateLoginSubmit(e, codeInput, passwordInput, errEl, stepCode, stepPassword) {
   e.preventDefault();
   const code = codeInput.value.trim();
   const password = passwordInput.value;
   errEl.style.display = 'none';
+  passwordInput.classList.remove('input-invalid');
   const btn = e.target.querySelector('.gate-arrow-btn');
   btn.disabled = true;
   try {
@@ -383,7 +450,23 @@ async function onGateLoginSubmit(e, codeInput, passwordInput, errEl) {
       body: JSON.stringify({ code, password })
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Não foi possível entrar.');
+    if (!res.ok) {
+      // o código foi confirmado na etapa 1, mas se algo mudou nesse meio
+      // tempo (ex: pasta excluída em outra aba), volta pra etapa 1 em vez
+      // de deixar o usuário preso numa senha pra um projeto que sumiu.
+      if (data.reason === 'code_not_found' && stepCode && stepPassword) {
+        stepPassword.hidden = true;
+        stepCode.hidden = false;
+        codeInput.classList.add('input-invalid');
+        codeInput.focus();
+        codeInput.select();
+      } else {
+        passwordInput.classList.add('input-invalid');
+        passwordInput.focus();
+        passwordInput.select();
+      }
+      throw new Error(data.error || 'Não foi possível entrar.');
+    }
     setSession(data.token, data.project);
     enterApp();
   } catch (err) {
@@ -478,11 +561,18 @@ async function renderHomeView() {
         ${skeletonCards(6)}
       </div>
     </div>
+    <button class="fab" id="fab-add-home" title="Adicionar">${ICONS.plus}</button>
   `;
 
   document.getElementById('btn-architecture').addEventListener('click', () => openProjectModal('architecturePdf'));
   document.getElementById('btn-notebook').addEventListener('click', () => openProjectModal('notebookPdf'));
   document.getElementById('btn-new-folder').addEventListener('click', () => openFolderFormModal());
+  document.getElementById('fab-add-home').addEventListener('click', (e) => {
+    openFabMenu(e.currentTarget, [
+      { label: 'Adicionar pasta', icon: ICONS.folder, onClick: () => openFolderFormModal() },
+      { label: 'Adicionar produto', icon: ICONS.sofa, onClick: () => openItemFormModal({ onSaved: () => {} }) }
+    ]);
+  });
   startHeroTyping(document.getElementById('hero-typed-text'));
 
   loadProjectStatus();
@@ -534,10 +624,9 @@ async function loadFolders() {
       });
       card.querySelector('[data-kebab]').addEventListener('click', (e) => {
         e.stopPropagation();
-        openActionSheet([
-          { label: 'Editar pasta', icon: ICONS.edit, onClick: () => openFolderFormModal(f) },
-          { label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(f) }
-        ]);
+        const actions = [{ label: 'Editar pasta', icon: ICONS.edit, onClick: () => openFolderFormModal(f) }];
+        if (!f.isAllProducts) actions.push({ label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(f) });
+        openActionSheet(actions);
       });
     });
   } catch (e) {
@@ -546,9 +635,12 @@ async function loadFolders() {
 }
 
 function folderCardHtml(f) {
+  const media = f.photoUrl
+    ? `<img class="tile-img" src="${f.photoUrl}" alt="${esc(f.name)}" loading="lazy" />`
+    : `<div class="tile-placeholder ${gradFor(f.id)}">${ICONS.folder}</div>`;
   return `
     <div class="tile folder-card" data-folder-id="${f.id}">
-      <img class="tile-img" src="${f.photoUrl}" alt="${esc(f.name)}" loading="lazy" />
+      ${media}
       <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
       <div class="tile-panel">
         <h3 class="tile-title">${esc(f.name)}</h3>
@@ -655,7 +747,7 @@ function openFolderFormModal(folder = null) {
       <div class="field">
         <label>Foto da pasta <span class="req">*</span></label>
         <div class="photo-picker">
-          ${isEdit
+          ${isEdit && folder.photoUrl
             ? `<img class="photo-preview" id="folder-photo-preview" src="${folder.photoUrl}" />`
             : `<div class="photo-preview-empty" id="folder-photo-preview-empty">${ICONS.image}</div>`}
           <div>
@@ -665,7 +757,7 @@ function openFolderFormModal(folder = null) {
         </div>
         <input type="file" accept="image/*" name="photo" id="folder-photo-input" style="display:none" ${isEdit ? '' : 'required'} />
       </div>
-      <div class="field-error" id="folder-form-error" style="display:none;"></div>
+      <div class="field-error" id="folder-form-error" role="alert" style="display:none;"></div>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary btn-block" id="folder-submit-btn">${isEdit ? 'Salvar alterações' : 'Criar pasta'}</button>
         <button type="button" class="btn btn-text" data-modal-close>Cancelar</button>
@@ -783,26 +875,34 @@ async function renderFolderView(id) {
   document.getElementById('folder-title').textContent = folder.name;
   document.getElementById('folder-sub').textContent = `${folder.itemCount} ${folder.itemCount === 1 ? 'item' : 'itens'}`;
   const headerEl = document.querySelector('.folder-header');
-  const coverImg = document.createElement('img');
-  coverImg.className = 'folder-cover';
-  coverImg.src = folder.photoUrl;
-  coverImg.alt = folder.name;
-  headerEl.insertBefore(coverImg, headerEl.querySelector('.folder-info'));
+  let cover;
+  if (folder.photoUrl) {
+    cover = document.createElement('img');
+    cover.className = 'folder-cover';
+    cover.src = folder.photoUrl;
+    cover.alt = folder.name;
+  } else {
+    cover = document.createElement('div');
+    cover.className = `folder-cover folder-cover-empty ${gradFor(folder.id)}`;
+    cover.innerHTML = ICONS.folder;
+  }
+  headerEl.insertBefore(cover, headerEl.querySelector('.folder-info'));
 
   document.getElementById('folder-kebab').addEventListener('click', () => {
-    openActionSheet([
-      { label: 'Editar pasta', icon: ICONS.edit, onClick: () => openFolderFormModal(folder) },
-      { label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(folder) }
-    ]);
+    const actions = [{ label: 'Editar pasta', icon: ICONS.edit, onClick: () => openFolderFormModal(folder) }];
+    if (!folder.isAllProducts) actions.push({ label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(folder) });
+    openActionSheet(actions);
   });
 
-  document.getElementById('fab-add-item').addEventListener('click', () => openItemFormModal(folder.id));
+  const onItemSaved = () => { loadItems(folder.id); refreshFolderHeaderCount(folder.id); };
+  document.getElementById('fab-add-item').addEventListener('click', () => openItemFormModal({ defaultFolderId: folder.id, onSaved: onItemSaved }));
 
   loadItems(folder.id);
 }
 
 async function loadItems(folderId) {
   const grid = document.getElementById('items-grid');
+  const onItemSaved = () => { loadItems(folderId); refreshFolderHeaderCount(folderId); };
   try {
     const items = await api(`/api/folders/${folderId}/items`);
     if (!items.length) {
@@ -813,7 +913,7 @@ async function loadItems(folderId) {
           <p>Adicione o link de um produto que você encontrou — foto, preço e medidas são opcionais.</p>
           <button class="btn btn-primary" id="btn-new-item-empty">${ICONS.plus} Adicionar item</button>
         </div>`;
-      document.getElementById('btn-new-item-empty').addEventListener('click', () => openItemFormModal(folderId));
+      document.getElementById('btn-new-item-empty').addEventListener('click', () => openItemFormModal({ defaultFolderId: folderId, onSaved: onItemSaved }));
       return;
     }
     grid.innerHTML = items.map(itemCardHtml).join('');
@@ -827,7 +927,7 @@ async function loadItems(folderId) {
         e.stopPropagation();
         openActionSheet([
           { label: 'Ver ficha completa', icon: ICONS.eye, onClick: () => openItemDetailModal(it, folderId) },
-          { label: 'Editar item', icon: ICONS.edit, onClick: () => openItemFormModal(folderId, it) },
+          { label: 'Editar item', icon: ICONS.edit, onClick: () => openItemFormModal({ item: it, defaultFolderId: folderId, onSaved: onItemSaved }) },
           { label: 'Excluir item', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteItem(it, folderId) }
         ]);
       });
@@ -867,11 +967,29 @@ function itemCardHtml(item) {
 // ---------------------------------------------------------------
 // ITEM FORM (create/edit)
 // ---------------------------------------------------------------
-function openItemFormModal(folderId, item = null) {
+async function openItemFormModal({ item = null, defaultFolderId = null, onSaved } = {}) {
   const isEdit = !!item;
+  let folders = [];
+  try {
+    folders = await api('/api/folders');
+  } catch (e) {
+    return toast('Não foi possível carregar as pastas.', 'error');
+  }
+  const allProductsFolder = folders.find((f) => f.isAllProducts);
+  const selectedFolderId = isEdit
+    ? item.folderId
+    : (defaultFolderId || (allProductsFolder && allProductsFolder.id) || '');
+
   const html = `
     <div class="modal-title-row"><h2>${isEdit ? 'Editar item' : 'Novo item'}</h2><button class="modal-close" data-modal-close>${ICONS.close}</button></div>
     <form id="item-form">
+      <div class="field">
+        <label>Pasta</label>
+        <select name="folderId">
+          ${folders.map((f) => `<option value="${f.id}" ${f.id === selectedFolderId ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}
+        </select>
+        <div class="field-hint">${defaultFolderId && !isEdit ? 'Pré-selecionada pela pasta atual — troque se quiser.' : `Se não escolher outra, vai para "${esc(allProductsFolder ? allProductsFolder.name : 'Todos os produtos')}".`}</div>
+      </div>
       <div class="field">
         <label>Loja física ou online <span class="req">*</span></label>
         <div class="store-type-toggle">
@@ -922,7 +1040,7 @@ function openItemFormModal(folderId, item = null) {
         <label>Observações <span class="opt">(opcional)</span></label>
         <textarea name="notes" placeholder="Cor, prazo de entrega, alternativas...">${isEdit ? esc(item.notes) : ''}</textarea>
       </div>
-      <div class="field-error" id="item-form-error" style="display:none;"></div>
+      <div class="field-error" id="item-form-error" role="alert" style="display:none;"></div>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary btn-block" id="item-submit-btn">${isEdit ? 'Salvar alterações' : 'Adicionar item'}</button>
         <button type="button" class="btn btn-text" data-modal-close>Cancelar</button>
@@ -966,12 +1084,11 @@ function openItemFormModal(folderId, item = null) {
         await api(`/api/items/${item.id}`, { method: 'PUT', body: fd });
         toast('Item atualizado.');
       } else {
-        await api(`/api/folders/${folderId}/items`, { method: 'POST', body: fd });
+        await api('/api/items', { method: 'POST', body: fd });
         toast('Item adicionado.');
       }
       closeModal();
-      loadItems(folderId);
-      refreshFolderHeaderCount(folderId);
+      if (onSaved) onSaved();
     } catch (e) {
       errEl.textContent = e.message;
       errEl.style.display = 'block';
@@ -1046,7 +1163,7 @@ function openItemDetailModal(item, folderId) {
   openModal(html);
   document.getElementById('ficha-edit-btn').addEventListener('click', () => {
     closeModal();
-    openItemFormModal(folderId, item);
+    openItemFormModal({ item, defaultFolderId: folderId, onSaved: () => { loadItems(folderId); refreshFolderHeaderCount(folderId); } });
   });
   document.getElementById('ficha-delete-btn').addEventListener('click', () => {
     closeModal();

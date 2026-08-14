@@ -23,11 +23,15 @@ create table if not exists projects (
 );
 
 -- ---------- folders ----------
+-- is_all_products: marca a pasta especial "Todos os produtos" que todo
+-- projeto ganha automaticamente — é o destino padrão de um produto
+-- quando nenhuma pasta é escolhida no formulário. Não pode ser excluída.
 create table if not exists folders (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,
   name text not null,
-  photo_path text not null
+  photo_path text,
+  is_all_products boolean not null default false
 );
 
 -- ---------- items (produtos dentro de cada pasta) ----------
@@ -49,6 +53,13 @@ create table if not exists items (
 alter table items add column if not exists store_type text not null default 'online';
 alter table items alter column link drop not null;
 alter table items drop column if exists name;
+
+-- ---------- migração (pasta especial "Todos os produtos") ----------
+alter table folders add column if not exists is_all_products boolean not null default false;
+alter table folders alter column photo_path drop not null;
+-- garante no máximo uma pasta "Todos os produtos" por projeto
+create unique index if not exists folders_one_all_products_per_project
+  on folders(project_id) where is_all_products;
 
 create index if not exists folders_project_id_idx on folders(project_id);
 create index if not exists items_project_id_idx on items(project_id);

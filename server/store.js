@@ -55,13 +55,50 @@ function publicProject(p) {
 }
 
 // ---------------- folders ----------------
+const ALL_PRODUCTS_FOLDER_NAME = 'Todos os produtos';
+
 async function listFolders(projectId) {
+  await ensureAllProductsFolder(projectId);
   const { data, error } = await supabase
     .from('folders')
     .select('*')
     .eq('project_id', projectId)
+    .order('is_all_products', { ascending: true })
     .order('name', { ascending: true });
   mustNot(error, 'Erro ao listar pastas');
+  return data;
+}
+
+// Toda pasta "Todos os produtos" é o destino padrão de um produto quando
+// nenhuma pasta é escolhida no formulário. Criada automaticamente no
+// cadastro do projeto — e recriada aqui (self-heal) para projetos que já
+// existiam antes dessa funcionalidade.
+async function findAllProductsFolder(projectId) {
+  const { data, error } = await supabase
+    .from('folders')
+    .select('*')
+    .eq('project_id', projectId)
+    .eq('is_all_products', true)
+    .maybeSingle();
+  mustNot(error, 'Erro ao buscar pasta Todos os produtos');
+  return data;
+}
+
+async function ensureAllProductsFolder(projectId) {
+  const existing = await findAllProductsFolder(projectId);
+  if (existing) return existing;
+  const { data, error } = await supabase
+    .from('folders')
+    .insert({ project_id: projectId, name: ALL_PRODUCTS_FOLDER_NAME, photo_path: null, is_all_products: true })
+    .select('*')
+    .single();
+  // corrida rara: outra requisição pode ter criado ao mesmo tempo — nesse
+  // caso o índice único barra o insert; buscamos a que já existe.
+  if (error) {
+    const again = await findAllProductsFolder(projectId);
+    if (again) return again;
+    mustNot(error, 'Erro ao criar pasta Todos os produtos');
+  }
   return data;
 }
 
@@ -109,8 +146,9 @@ function folderPayload(folder, itemCount) {
     id: folder.id,
     name: folder.name,
     photo: folder.photo_path,
-    photoUrl: publicUrlFor(folder.photo_path),
-    itemCount: itemCount || 0
+    photoUrl: folder.photo_path ? publicUrlFor(folder.photo_path) : null,
+    itemCount: itemCount || 0,
+    isAllProducts: !!folder.is_all_products
   };
 }
 
@@ -149,6 +187,7 @@ async function createItem(fields) {
 
 async function updateItem(id, projectId, fields) {
   const patch = {};
+  if (fields.folderId !== undefined) patch.folder_id = fields.folderId;
   if (fields.storeType !== undefined) patch.store_type = fields.storeType;
   if (fields.photoPath !== undefined) patch.photo_path = fields.photoPath;
   if (fields.price !== undefined) patch.price = fields.price;
@@ -191,6 +230,8 @@ module.exports = {
   publicProject,
   listFolders,
   findFolder,
+  findAllProductsFolder,
+  ensureAllProductsFolder,
   createFolder,
   updateFolder,
   deleteFolder,

@@ -84,17 +84,30 @@ app.post('/api/auth/register', asyncRoute(async (req, res) => {
 
   const { salt, hash } = hashPassword(password);
   const project = await store.createProject({ code, passwordSalt: salt, passwordHash: hash });
+  await store.ensureAllProductsFolder(project.id);
 
   const token = signSessionToken(project.id);
   res.status(201).json({ token, project: store.publicProject(project) });
+}));
+
+// Checagem leve usada na etapa 1 da tela de entrada — permite avisar
+// "esse código não existe" antes de pedir a senha, sem esperar o login.
+app.get('/api/auth/check-code', asyncRoute(async (req, res) => {
+  const code = normalizeCode(req.query.code || '');
+  if (!code) return res.status(400).json({ error: 'Informe um código.' });
+  const project = await store.findProjectByCode(code);
+  res.json({ exists: !!project });
 }));
 
 app.post('/api/auth/login', asyncRoute(async (req, res) => {
   const code = normalizeCode(req.body.code);
   const password = req.body.password || '';
   const project = await store.findProjectByCode(code);
-  if (!project || !verifyPassword(password, project.password_salt, project.password_hash)) {
-    return res.status(401).json({ error: 'Código ou senha incorretos.' });
+  if (!project) {
+    return res.status(404).json({ error: 'Não encontramos um projeto com esse código.', reason: 'code_not_found' });
+  }
+  if (!verifyPassword(password, project.password_salt, project.password_hash)) {
+    return res.status(401).json({ error: 'Senha incorreta. Tente novamente.', reason: 'wrong_password' });
   }
   const token = signSessionToken(project.id);
   res.json({ token, project: store.publicProject(project) });
@@ -208,6 +221,10 @@ app.put('/api/folders/:id', uploadFolderPhoto.single('photo'), asyncRoute(async 
 }));
 
 app.delete('/api/folders/:id', asyncRoute(async (req, res) => {
+  const existing = await store.findFolder(req.params.id, req.projectId);
+  if (!existing) return res.status(404).json({ error: 'Pasta não encontrada.' });
+  if (existing.is_all_products) return res.status(400).json({ error: 'A pasta "Todos os produtos" não pode ser excluída.' });
+
   const items = await store.listItems(req.params.id, req.projectId);
   const deleted = await store.deleteFolder(req.params.id, req.projectId);
   if (!deleted) return res.status(404).json({ error: 'Pasta não encontrada.' });
@@ -226,10 +243,7 @@ app.get('/api/folders/:id/items', asyncRoute(async (req, res) => {
   res.json(items.map(store.itemPayload));
 }));
 
-app.post('/api/folders/:id/items', uploadItemPhoto.single('photo'), asyncRoute(async (req, res) => {
-  const folder = await store.findFolder(req.params.id, req.projectId);
-  if (!folder) return res.status(404).json({ error: 'Pasta não encontrada.' });
-
+async function createItemFromRequest(req, res, folder) {
   const storeType = (req.body.storeType || '').trim();
   if (storeType !== 'fisica' && storeType !== 'online') {
     return res.status(400).json({ error: 'Escolha se a loja é física ou online.' });
@@ -254,6 +268,23 @@ app.post('/api/folders/:id/items', uploadItemPhoto.single('photo'), asyncRoute(a
     notes: (req.body.notes || '').trim()
   });
   res.status(201).json(store.itemPayload(item));
+}
+
+app.post('/api/folders/:id/items', uploadItemPhoto.single('photo'), asyncRoute(async (req, res) => {
+  const folder = await store.findFolder(req.params.id, req.projectId);
+  if (!folder) return res.status(404).json({ error: 'Pasta não encontrada.' });
+  await createItemFromRequest(req, res, folder);
+}));
+
+// Cadastro de produto "solto" (ex: botão + da página principal) — se
+// nenhuma pasta for escolhida, cai na pasta especial "Todos os produtos".
+app.post('/api/items', uploadItemPhoto.single('photo'), asyncRoute(async (req, res) => {
+  const folderId = (req.body.folderId || '').trim();
+  const folder = folderId
+    ? await store.findFolder(folderId, req.projectId)
+    : await store.ensureAllProductsFolder(req.projectId);
+  if (!folder) return res.status(404).json({ error: 'Pasta não encontrada.' });
+  await createItemFromRequest(req, res, folder);
 }));
 
 app.get('/api/items/:id', asyncRoute(async (req, res) => {
@@ -267,6 +298,14 @@ app.put('/api/items/:id', uploadItemPhoto.single('photo'), asyncRoute(async (req
   if (!existing) return res.status(404).json({ error: 'Item não encontrado.' });
 
   const fields = {};
+  if (req.body.folderId !== undefined) {
+    const folderId = (req.body.folderId || '').trim();
+    const folder = folderId
+      ? await store.findFolder(folderId, req.projectId)
+      : await store.ensureAllProductsFolder(req.projectId);
+    if (!folder) return res.status(404).json({ error: 'Pasta não encontrada.' });
+    fields.folderId = folder.id;
+  }
   if (req.body.storeType !== undefined) {
     const storeType = (req.body.storeType || '').trim();
     if (storeType !== 'fisica' && storeType !== 'online') {
