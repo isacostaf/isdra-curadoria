@@ -102,6 +102,20 @@ function gradFor(id) {
   return GRADIENTS[hash % GRADIENTS.length];
 }
 
+// primeiro "card" da grade: sem foto/painel, só um círculo com + —
+// clicar já abre direto o formulário de criação (pasta ou produto)
+function tileAddHtml(label) {
+  return `<div class="tile tile-add" data-tile-add role="button" tabindex="0" aria-label="${esc(label)}"><span class="tile-add-circle">${ICONS.plus}</span></div>`;
+}
+function wireTileAdd(grid, onClick) {
+  const el = grid.querySelector('[data-tile-add]');
+  if (!el) return;
+  el.addEventListener('click', onClick);
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); }
+  });
+}
+
 // ---------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------
@@ -124,21 +138,63 @@ function hostFromUrl(url) {
 }
 
 // ---------------------------------------------------------------
-// session (per-project code + senha, kept for this browser tab only —
-// closing the tab or opening a fresh one asks for the code again)
+// arrastar-e-soltar / colar imagem — usado nos seletores de foto de
+// pasta e de produto. Injeta o arquivo no <input type=file> via
+// DataTransfer e dispara 'change' pra reaproveitar o preview já existente.
+function assignFileToInput(inputEl, file) {
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  inputEl.files = dt.files;
+  inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+}
+function wireImageDropAndPaste(zoneEl, inputEl) {
+  ['dragenter', 'dragover'].forEach((evt) => {
+    zoneEl.addEventListener(evt, (e) => {
+      e.preventDefault();
+      zoneEl.classList.add('drag-over');
+    });
+  });
+  ['dragleave', 'drop'].forEach((evt) => {
+    zoneEl.addEventListener(evt, () => zoneEl.classList.remove('drag-over'));
+  });
+  zoneEl.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file && /^image\//.test(file.type)) assignFileToInput(inputEl, file);
+  });
+
+  // cola de qualquer lugar dentro da folha do modal (não precisa focar o input)
+  const sheet = zoneEl.closest('[data-sheet]') || zoneEl;
+  sheet.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === 'file' && /^image\//.test(item.type)) {
+        const file = item.getAsFile();
+        if (file) { e.preventDefault(); assignFileToInput(inputEl, file); }
+        break;
+      }
+    }
+  });
+}
+
+// ---------------------------------------------------------------
+// session (per-project code + senha) — guardada em localStorage pra
+// durar entre abas e reinícios do navegador, expirando só quando o
+// próprio JWT expira (30 dias, ver server/auth.js)
 // ---------------------------------------------------------------
 const SESSION_KEY = 'isdra_session';
 function getSession() {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch (e) { return null; }
 }
 function setSession(token, project) {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token, project }));
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ token, project }));
 }
 function clearSession() {
-  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_KEY);
 }
 
 async function api(path, opts = {}) {
@@ -258,6 +314,7 @@ function openFabMenu(anchorEl, items) {
 function parseHash() {
   const h = location.hash.replace(/^#/, '');
   if (h.startsWith('folder/')) return { view: 'folder', id: h.slice(7) };
+  if (h === 'cart') return { view: 'cart' };
   return { view: 'home' };
 }
 window.addEventListener('hashchange', route);
@@ -265,6 +322,7 @@ window.addEventListener('hashchange', route);
 function route() {
   const r = parseHash();
   if (r.view === 'folder') renderFolderView(r.id);
+  else if (r.view === 'cart') renderCartView();
   else renderHomeView();
 }
 
@@ -570,7 +628,8 @@ async function renderHomeView() {
   document.getElementById('fab-add-home').addEventListener('click', (e) => {
     openFabMenu(e.currentTarget, [
       { label: 'Adicionar pasta', icon: ICONS.folder, onClick: () => openFolderFormModal() },
-      { label: 'Adicionar produto', icon: ICONS.sofa, onClick: () => openItemFormModal({ onSaved: () => {} }) }
+      { label: 'Adicionar produto', icon: ICONS.sofa, onClick: () => openItemFormModal({ onSaved: () => {} }) },
+      { label: 'Carrinho de compras', icon: ICONS.bag, onClick: () => { location.hash = 'cart'; } }
     ]);
   });
   startHeroTyping(document.getElementById('hero-typed-text'));
@@ -615,7 +674,8 @@ async function loadFolders() {
       document.getElementById('btn-new-folder-empty').addEventListener('click', () => openFolderFormModal());
       return;
     }
-    grid.innerHTML = folders.map(folderCardHtml).join('');
+    grid.innerHTML = tileAddHtml('Nova pasta') + folders.map(folderCardHtml).join('');
+    wireTileAdd(grid, () => openFolderFormModal());
     folders.forEach((f) => {
       const card = grid.querySelector(`[data-folder-id="${f.id}"]`);
       card.addEventListener('click', (e) => {
@@ -625,7 +685,14 @@ async function loadFolders() {
       card.querySelector('[data-kebab]').addEventListener('click', (e) => {
         e.stopPropagation();
         const actions = [{ label: 'Editar pasta', icon: ICONS.edit, onClick: () => openFolderFormModal(f) }];
-        if (!f.isAllProducts) actions.push({ label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(f) });
+        if (!f.isAllProducts) {
+          actions.push({
+            label: f.purchased ? 'Desmarcar já comprado' : 'Marcar como já comprado',
+            icon: ICONS.check,
+            onClick: () => toggleFolderPurchased(f, loadFolders)
+          });
+          actions.push({ label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(f) });
+        }
         openActionSheet(actions);
       });
     });
@@ -634,13 +701,28 @@ async function loadFolders() {
   }
 }
 
+async function toggleFolderPurchased(folder, onDone) {
+  try {
+    await api(`/api/folders/${folder.id}/purchased`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ purchased: !folder.purchased })
+    });
+    toast(folder.purchased ? 'Pasta desmarcada.' : 'Pasta marcada como já comprada.');
+    if (onDone) onDone();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
 function folderCardHtml(f) {
   const media = f.photoUrl
     ? `<img class="tile-img" src="${f.photoUrl}" alt="${esc(f.name)}" loading="lazy" />`
     : `<div class="tile-placeholder ${gradFor(f.id)}">${ICONS.folder}</div>`;
   return `
-    <div class="tile folder-card" data-folder-id="${f.id}">
+    <div class="tile folder-card ${f.purchased ? 'purchased' : ''}" data-folder-id="${f.id}">
       ${media}
+      ${f.purchased ? `<div class="folder-purchased-badge">${ICONS.check} Já comprado</div>` : ''}
       <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
       <div class="tile-panel">
         <h3 class="tile-title">${esc(f.name)}</h3>
@@ -746,13 +828,13 @@ function openFolderFormModal(folder = null) {
       </div>
       <div class="field">
         <label>Foto da pasta <span class="req">*</span></label>
-        <div class="photo-picker">
+        <div class="photo-picker" id="folder-photo-picker">
           ${isEdit && folder.photoUrl
             ? `<img class="photo-preview" id="folder-photo-preview" src="${folder.photoUrl}" />`
             : `<div class="photo-preview-empty" id="folder-photo-preview-empty">${ICONS.image}</div>`}
           <div>
             <button type="button" class="btn btn-ghost btn-sm" id="folder-photo-pick-btn">Escolher foto</button>
-            <div class="field-hint">JPG, PNG ou WEBP</div>
+            <div class="field-hint">JPG, PNG ou WEBP — arraste, cole ou clique</div>
           </div>
         </div>
         <input type="file" accept="image/*" name="photo" id="folder-photo-input" style="display:none" ${isEdit ? '' : 'required'} />
@@ -776,6 +858,7 @@ function openFolderFormModal(folder = null) {
     if (existingPreview) existingPreview.src = url;
     else if (existingEmpty) existingEmpty.outerHTML = `<img class="photo-preview" id="folder-photo-preview" src="${url}" />`;
   });
+  wireImageDropAndPaste(document.getElementById('folder-photo-picker'), photoInput);
 
   const form = document.getElementById('folder-form');
   form.addEventListener('submit', async (e) => {
@@ -890,7 +973,14 @@ async function renderFolderView(id) {
 
   document.getElementById('folder-kebab').addEventListener('click', () => {
     const actions = [{ label: 'Editar pasta', icon: ICONS.edit, onClick: () => openFolderFormModal(folder) }];
-    if (!folder.isAllProducts) actions.push({ label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(folder) });
+    if (!folder.isAllProducts) {
+      actions.push({
+        label: folder.purchased ? 'Desmarcar já comprado' : 'Marcar como já comprado',
+        icon: ICONS.check,
+        onClick: () => toggleFolderPurchased(folder, () => renderFolderView(folder.id))
+      });
+      actions.push({ label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(folder) });
+    }
     openActionSheet(actions);
   });
 
@@ -898,6 +988,112 @@ async function renderFolderView(id) {
   document.getElementById('fab-add-item').addEventListener('click', () => openItemFormModal({ defaultFolderId: folder.id, onSaved: onItemSaved }));
 
   loadItems(folder.id);
+}
+
+// ---------------------------------------------------------------
+// CARRINHO DE COMPRAS
+// ---------------------------------------------------------------
+async function renderCartView() {
+  appEl.innerHTML = `
+    <div class="view-enter">
+      <div class="folder-header">
+        <button class="btn btn-icon back-btn" id="cart-back-btn">${ICONS.back}</button>
+        <div class="folder-info">
+          <h1>Carrinho de compras</h1>
+          <div class="folder-sub" id="cart-sub">Carregando…</div>
+        </div>
+      </div>
+      <div class="cart-summary" id="cart-summary" hidden>
+        <div class="cart-summary-info">
+          <div class="cart-summary-label">Valor total do carrinho</div>
+          <div class="cart-summary-total" id="cart-summary-total"></div>
+        </div>
+        <button class="btn btn-primary" id="cart-report-btn">${ICONS.note} Gerar relatório</button>
+      </div>
+      <div class="grid" id="cart-grid">${skeletonCards(4)}</div>
+    </div>
+  `;
+  document.getElementById('cart-back-btn').addEventListener('click', () => { location.hash = ''; });
+  document.getElementById('cart-report-btn').addEventListener('click', downloadCartReport);
+  loadCart();
+}
+
+async function loadCart() {
+  const grid = document.getElementById('cart-grid');
+  try {
+    const data = await api('/api/cart');
+    const items = data.items;
+    document.getElementById('cart-sub').textContent = `${items.length} ${items.length === 1 ? 'produto' : 'produtos'}`;
+    const summary = document.getElementById('cart-summary');
+    if (items.length) {
+      summary.hidden = false;
+      document.getElementById('cart-summary-total').textContent = fmtPrice(data.total) || 'R$ 0,00';
+    } else {
+      summary.hidden = true;
+    }
+
+    if (!items.length) {
+      grid.outerHTML = `
+        <div class="empty-state" id="cart-grid-empty" style="grid-column:1/-1;">
+          <div class="icon">${ICONS.bag}</div>
+          <p><strong>Seu carrinho está vazio</strong></p>
+          <p>Abra um produto e escolha "Adicionar ao carrinho" pra reunir aqui tudo que você já decidiu comprar.</p>
+          <button class="btn btn-primary" onclick="location.hash=''">Ver minhas pastas</button>
+        </div>`;
+      return;
+    }
+
+    grid.innerHTML = items.map(itemCardHtml).join('');
+    items.forEach((it) => {
+      const card = grid.querySelector(`[data-item-id="${it.id}"]`);
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('[data-kebab]')) return;
+        openItemDetailModal(it, it.folderId, loadCart);
+      });
+      card.querySelector('[data-kebab]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openActionSheet([
+          { label: 'Ver ficha completa', icon: ICONS.eye, onClick: () => openItemDetailModal(it, it.folderId, loadCart) },
+          { label: 'Remover do carrinho', icon: ICONS.bag, onClick: () => toggleItemCart(it, loadCart) },
+          { label: 'Excluir item', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteItem(it, it.folderId, loadCart) }
+        ]);
+      });
+    });
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">${ICONS.warning}</div><p>Erro ao carregar o carrinho.</p></div>`;
+  }
+}
+
+async function downloadCartReport() {
+  const btn = document.getElementById('cart-report-btn');
+  const originalText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Gerando…';
+  try {
+    const session = getSession();
+    const headers = {};
+    if (session && session.token) headers.Authorization = `Bearer ${session.token}`;
+    const res = await fetch('/api/cart/report', { headers });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Não foi possível gerar o relatório.');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `carrinho-${(session && session.project && session.project.code) || 'isdra'}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('Relatório gerado.');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+  }
 }
 
 async function loadItems(folderId) {
@@ -916,7 +1112,8 @@ async function loadItems(folderId) {
       document.getElementById('btn-new-item-empty').addEventListener('click', () => openItemFormModal({ defaultFolderId: folderId, onSaved: onItemSaved }));
       return;
     }
-    grid.innerHTML = items.map(itemCardHtml).join('');
+    grid.innerHTML = tileAddHtml('Novo produto') + items.map(itemCardHtml).join('');
+    wireTileAdd(grid, () => openItemFormModal({ defaultFolderId: folderId, onSaved: onItemSaved }));
     items.forEach((it) => {
       const card = grid.querySelector(`[data-item-id="${it.id}"]`);
       card.addEventListener('click', (e) => {
@@ -928,12 +1125,27 @@ async function loadItems(folderId) {
         openActionSheet([
           { label: 'Ver ficha completa', icon: ICONS.eye, onClick: () => openItemDetailModal(it, folderId) },
           { label: 'Editar item', icon: ICONS.edit, onClick: () => openItemFormModal({ item: it, defaultFolderId: folderId, onSaved: onItemSaved }) },
+          { label: it.inCart ? 'Remover do carrinho' : 'Adicionar ao carrinho', icon: ICONS.bag, onClick: () => toggleItemCart(it, onItemSaved) },
           { label: 'Excluir item', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteItem(it, folderId) }
         ]);
       });
     });
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">${ICONS.warning}</div><p>Erro ao carregar itens.</p></div>`;
+  }
+}
+
+async function toggleItemCart(item, onDone) {
+  try {
+    await api(`/api/items/${item.id}/cart`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inCart: !item.inCart })
+    });
+    toast(item.inCart ? 'Removido do carrinho.' : 'Adicionado ao carrinho.');
+    if (onDone) onDone();
+  } catch (e) {
+    toast(e.message, 'error');
   }
 }
 
@@ -946,6 +1158,7 @@ function itemDisplayTitle(item) {
 
 function itemCardHtml(item) {
   const price = fmtPrice(item.price);
+  const totalPrice = fmtPrice(item.totalPrice);
   const hasPhoto = !!item.photoUrl;
   const media = hasPhoto
     ? `<img class="tile-img" src="${item.photoUrl}" alt="${esc(itemDisplayTitle(item))}" loading="lazy" />`
@@ -954,10 +1167,12 @@ function itemCardHtml(item) {
   return `
     <div class="tile item-card" data-item-id="${item.id}">
       ${media}
+      ${item.inCart ? `<div class="item-cart-badge">${ICONS.bag} No carrinho</div>` : ''}
       <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
       <div class="tile-panel">
         <div class="tile-tags">${storeTypeLabel ? `<span class="tile-tag store-${esc(item.storeType)}">${esc(storeTypeLabel)}</span>` : ''}</div>
         <div class="tile-price">${price ? esc(price) : ''}</div>
+        <div class="tile-total-price">${totalPrice ? esc(totalPrice) : ''}</div>
         <div class="tile-line">${item.measurements ? esc(item.measurements) : ''}</div>
         <div class="tile-line">${item.store ? esc(item.store) : ''}</div>
       </div>
@@ -991,18 +1206,18 @@ async function openItemFormModal({ item = null, defaultFolderId = null, onSaved 
         <div class="field-hint">${defaultFolderId && !isEdit ? 'Pré-selecionada pela pasta atual — troque se quiser.' : `Se não escolher outra, vai para "${esc(allProductsFolder ? allProductsFolder.name : 'Todos os produtos')}".`}</div>
       </div>
       <div class="field">
-        <label>Loja física ou online <span class="req">*</span></label>
+        <label>Loja física ou online <span class="opt">(opcional)</span></label>
         <div class="store-type-toggle">
           <label class="store-type-option">
-            <input type="radio" name="storeType" value="fisica" ${isEdit && item.storeType === 'fisica' ? 'checked' : ''} required />
+            <input type="radio" name="storeType" value="fisica" ${isEdit && item.storeType === 'fisica' ? 'checked' : ''} />
             <span>Loja física</span>
           </label>
           <label class="store-type-option">
-            <input type="radio" name="storeType" value="online" ${isEdit && item.storeType === 'online' ? 'checked' : ''} required />
+            <input type="radio" name="storeType" value="online" ${!isEdit || item.storeType === 'online' ? 'checked' : ''} />
             <span>Loja online</span>
           </label>
         </div>
-        <div class="field-hint">O único campo obrigatório.</div>
+        <div class="field-hint">Se não escolher, fica como loja online.</div>
       </div>
       <div class="field">
         <label>Link do produto <span class="opt">(opcional)</span></label>
@@ -1010,13 +1225,14 @@ async function openItemFormModal({ item = null, defaultFolderId = null, onSaved 
       </div>
       <div class="field">
         <label>Foto do produto <span class="opt">(opcional)</span></label>
-        <div class="photo-picker">
+        <div class="photo-picker" id="item-photo-picker">
           ${isEdit && item.photoUrl
             ? `<img class="photo-preview" id="item-photo-preview" src="${item.photoUrl}" />`
             : `<div class="photo-preview-empty" id="item-photo-preview-empty">${ICONS.sofa}</div>`}
           <div>
             <button type="button" class="btn btn-ghost btn-sm" id="item-photo-pick-btn">Escolher foto</button>
             ${isEdit && item.photoUrl ? `<button type="button" class="btn btn-text btn-sm" id="item-photo-remove-btn">Remover</button>` : ''}
+            <div class="field-hint">arraste ou cole uma imagem</div>
           </div>
         </div>
         <input type="file" accept="image/*" name="photo" id="item-photo-input" style="display:none" />
@@ -1028,13 +1244,19 @@ async function openItemFormModal({ item = null, defaultFolderId = null, onSaved 
           <input type="number" step="0.01" min="0" name="price" placeholder="0,00" value="${isEdit && item.price !== null ? item.price : ''}" />
         </div>
         <div class="field">
+          <label>Valor total <span class="opt">(opcional)</span></label>
+          <input type="number" step="0.01" min="0" name="totalPrice" placeholder="0,00" value="${isEdit && item.totalPrice !== null && item.totalPrice !== undefined ? item.totalPrice : ''}" />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
           <label>Medidas <span class="opt">(opcional)</span></label>
           <input type="text" name="measurements" placeholder="Ex: 120x60x75cm" value="${isEdit ? esc(item.measurements) : ''}" />
         </div>
-      </div>
-      <div class="field">
-        <label>Loja <span class="opt">(opcional)</span></label>
-        <input type="text" name="store" placeholder="Ex: Madeira Madeira" value="${isEdit ? esc(item.store) : ''}" maxlength="80" />
+        <div class="field">
+          <label>Loja <span class="opt">(opcional)</span></label>
+          <input type="text" name="store" placeholder="Ex: Madeira Madeira" value="${isEdit ? esc(item.store) : ''}" maxlength="80" />
+        </div>
       </div>
       <div class="field">
         <label>Observações <span class="opt">(opcional)</span></label>
@@ -1060,6 +1282,7 @@ async function openItemFormModal({ item = null, defaultFolderId = null, onSaved 
     if (existingPreview) existingPreview.src = url;
     else if (existingEmpty) existingEmpty.outerHTML = `<img class="photo-preview" id="item-photo-preview" src="${url}" />`;
   });
+  wireImageDropAndPaste(document.getElementById('item-photo-picker'), photoInput);
   const removeBtn = document.getElementById('item-photo-remove-btn');
   if (removeBtn) {
     removeBtn.addEventListener('click', () => {
@@ -1106,7 +1329,7 @@ async function refreshFolderHeaderCount(folderId) {
   } catch (e) { /* silent */ }
 }
 
-async function confirmDeleteItem(item, folderId) {
+async function confirmDeleteItem(item, folderId, onDone) {
   openConfirmModal({
     title: 'Excluir item?',
     message: `"${itemDisplayTitle(item)}" será removido permanentemente.`,
@@ -1115,8 +1338,12 @@ async function confirmDeleteItem(item, folderId) {
       try {
         await api(`/api/items/${item.id}`, { method: 'DELETE' });
         toast('Item excluído.');
-        loadItems(folderId);
-        refreshFolderHeaderCount(folderId);
+        if (onDone) {
+          onDone();
+        } else {
+          loadItems(folderId);
+          refreshFolderHeaderCount(folderId);
+        }
       } catch (e) {
         toast(e.message, 'error');
       }
@@ -1127,12 +1354,13 @@ async function confirmDeleteItem(item, folderId) {
 // ---------------------------------------------------------------
 // ITEM DETAIL (ficha completa)
 // ---------------------------------------------------------------
-function openItemDetailModal(item, folderId) {
+function openItemDetailModal(item, folderId, onChange) {
+  const refresh = onChange || (() => { loadItems(folderId); refreshFolderHeaderCount(folderId); });
   const price = fmtPrice(item.price);
+  const totalPrice = fmtPrice(item.totalPrice);
   const storeTypeLabel = STORE_TYPE_LABELS[item.storeType] || '';
   const stats = [];
   if (storeTypeLabel) stats.push({ k: 'Tipo de loja', v: storeTypeLabel, icon: ICONS.store });
-  if (price) stats.push({ k: 'Preço', v: price, icon: ICONS.tag });
   if (item.measurements) stats.push({ k: 'Medidas', v: item.measurements, icon: ICONS.rulerSmall });
   if (item.store) stats.push({ k: 'Loja', v: item.store, icon: ICONS.store });
 
@@ -1143,9 +1371,10 @@ function openItemDetailModal(item, folderId) {
         : `<div class="ficha-photo-empty ${gradFor(item.id)}">${ICONS.sofa}</div>`}
       <button class="modal-close" data-modal-close>${ICONS.close}</button>
     </div>
-    <div>
+    <div class="ficha-price-block">
       <h2 class="ficha-title">${esc(itemDisplayTitle(item))}</h2>
       ${price ? `<div class="ficha-price">${esc(price)}</div>` : ''}
+      ${totalPrice ? `<div class="ficha-price-label">Valor total: ${esc(totalPrice)}</div>` : ''}
     </div>
     ${stats.length ? `
       <div class="ficha-grid">
@@ -1156,18 +1385,34 @@ function openItemDetailModal(item, folderId) {
       <div class="ficha-notes">${esc(item.notes)}</div>` : ''}
     ${item.link ? `<a class="btn btn-primary ficha-link-btn" href="${esc(item.link)}" target="_blank" rel="noopener">${ICONS.external} Ver produto — ${esc(hostFromUrl(item.link))}</a>` : ''}
     <div class="ficha-actions">
+      <button class="btn btn-ghost" id="ficha-cart-btn">${ICONS.bag} ${item.inCart ? 'Remover do carrinho' : 'Adicionar ao carrinho'}</button>
       <button class="btn btn-ghost" id="ficha-edit-btn">${ICONS.edit} Editar</button>
       <button class="btn btn-danger" id="ficha-delete-btn">${ICONS.trash} Excluir</button>
     </div>
   `;
   openModal(html);
+  document.getElementById('ficha-cart-btn').addEventListener('click', async () => {
+    try {
+      const updated = await api(`/api/items/${item.id}/cart`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inCart: !item.inCart })
+      });
+      toast(item.inCart ? 'Removido do carrinho.' : 'Adicionado ao carrinho.');
+      closeModal();
+      openItemDetailModal(updated, folderId, onChange);
+      refresh();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  });
   document.getElementById('ficha-edit-btn').addEventListener('click', () => {
     closeModal();
-    openItemFormModal({ item, defaultFolderId: folderId, onSaved: () => { loadItems(folderId); refreshFolderHeaderCount(folderId); } });
+    openItemFormModal({ item, defaultFolderId: folderId, onSaved: refresh });
   });
   document.getElementById('ficha-delete-btn').addEventListener('click', () => {
     closeModal();
-    confirmDeleteItem(item, folderId);
+    confirmDeleteItem(item, folderId, onChange);
   });
 }
 
