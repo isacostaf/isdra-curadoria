@@ -159,6 +159,14 @@ async function listItems(folderId, projectId) {
   return data;
 }
 
+// usado pela pasta especial "Todos os produtos" — ela sempre mostra todo
+// mundo do projeto, não só os itens cujo folder_id aponta pra ela.
+async function listAllItems(projectId) {
+  const { data, error } = await supabase.from('items').select('*').eq('project_id', projectId);
+  mustNot(error, 'Erro ao listar itens');
+  return data;
+}
+
 async function findItem(id, projectId) {
   const { data, error } = await supabase.from('items').select('*').eq('id', id).eq('project_id', projectId).maybeSingle();
   mustNot(error, 'Erro ao buscar item');
@@ -238,6 +246,7 @@ module.exports = {
   countItemsByFolder,
   folderPayload,
   listItems,
+  listAllItems,
   findItem,
   createItem,
   updateItem,

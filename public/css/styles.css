@@ -459,6 +459,30 @@ svg { display: block; }
 }
 .tile-placeholder svg { width: 34px; height: 34px; color: var(--ink); opacity: 0.32; }
 
+/* primeiro slot da grade: sem foto/painel, só um círculo com + flutuando
+   sobre o fundo — clicar já cria a pasta/produto direto */
+.tile-add {
+  background: transparent;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tile-add-circle {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(255, 255, 255, 0.4);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--cream-deep);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.tile-add-circle svg { width: 22px; height: 22px; }
+.tile-add:hover .tile-add-circle { background: rgba(255, 255, 255, 0.34); transform: scale(1.06); }
+.tile-add:active .tile-add-circle { transform: scale(0.94); }
+
 .tile-kebab {
   position: absolute; top: 10px; right: 10px; z-index: 3;
   width: 28px; height: 28px; border-radius: 50%;
@@ -786,7 +810,17 @@ svg { display: block; }
   outline-offset: 2px;
 }
 
-.photo-picker { display: flex; align-items: center; gap: 14px; }
+.photo-picker {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px; margin: -8px;
+  border-radius: var(--radius-md);
+  border: 1.5px dashed transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.photo-picker.drag-over {
+  background: var(--cream-deep);
+  border-color: var(--ink-faint);
+}
 .photo-preview {
   width: 74px; height: 74px;
   border-radius: 18px;
@@ -845,7 +879,8 @@ svg { display: block; }
   box-shadow: 0 4px 14px rgba(20, 17, 12, 0.2);
 }
 .ficha-title { font-size: 20px; font-weight: 700; margin: 0 0 6px; color: var(--ink); }
-.ficha-price { font-size: 21px; color: var(--accent); font-weight: 800; margin: 0 0 16px; }
+.ficha-price { font-size: 21px; color: var(--accent); font-weight: 800; margin: 0 0 2px; }
+.ficha-price-label { font-size: 12px; font-weight: 400; font-style: italic; color: var(--ink-faint); margin: 0 0 16px; }
 .ficha-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
 .ficha-stat {
   padding: 12px 14px;

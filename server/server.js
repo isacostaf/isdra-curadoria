@@ -178,16 +178,23 @@ app.delete('/api/project/notebook', handleProjectDelete('notebookPdf'));
 // ============================================================
 // FOLDERS
 // ============================================================
+// a pasta "Todos os produtos" sempre mostra o total do projeto, não só
+// os itens cujo folder_id aponta direto pra ela.
+function countFor(folder, counts) {
+  if (folder.is_all_products) return Object.values(counts).reduce((a, b) => a + b, 0);
+  return counts[folder.id] || 0;
+}
+
 app.get('/api/folders', asyncRoute(async (req, res) => {
   const [folders, counts] = await Promise.all([store.listFolders(req.projectId), store.countItemsByFolder(req.projectId)]);
-  res.json(folders.map((f) => store.folderPayload(f, counts[f.id])));
+  res.json(folders.map((f) => store.folderPayload(f, countFor(f, counts))));
 }));
 
 app.get('/api/folders/:id', asyncRoute(async (req, res) => {
   const folder = await store.findFolder(req.params.id, req.projectId);
   if (!folder) return res.status(404).json({ error: 'Pasta não encontrada.' });
   const counts = await store.countItemsByFolder(req.projectId);
-  res.json(store.folderPayload(folder, counts[folder.id]));
+  res.json(store.folderPayload(folder, countFor(folder, counts)));
 }));
 
 app.post('/api/folders', uploadFolderPhoto.single('photo'), asyncRoute(async (req, res) => {
@@ -217,7 +224,7 @@ app.put('/api/folders/:id', uploadFolderPhoto.single('photo'), asyncRoute(async 
   if (req.file && existing.photo_path) store.removeFile(existing.photo_path);
 
   const counts = await store.countItemsByFolder(req.projectId);
-  res.json(store.folderPayload(updated, counts[updated.id]));
+  res.json(store.folderPayload(updated, countFor(updated, counts)));
 }));
 
 app.delete('/api/folders/:id', asyncRoute(async (req, res) => {
@@ -239,12 +246,15 @@ app.delete('/api/folders/:id', asyncRoute(async (req, res) => {
 app.get('/api/folders/:id/items', asyncRoute(async (req, res) => {
   const folder = await store.findFolder(req.params.id, req.projectId);
   if (!folder) return res.status(404).json({ error: 'Pasta não encontrada.' });
-  const items = await store.listItems(folder.id, req.projectId);
+  const items = folder.is_all_products
+    ? await store.listAllItems(req.projectId)
+    : await store.listItems(folder.id, req.projectId);
   res.json(items.map(store.itemPayload));
 }));
 
 async function createItemFromRequest(req, res, folder) {
-  const storeType = (req.body.storeType || '').trim();
+  // opcional — se nada for escolhido, cai em "loja online" por padrão
+  const storeType = (req.body.storeType || '').trim() || 'online';
   if (storeType !== 'fisica' && storeType !== 'online') {
     return res.status(400).json({ error: 'Escolha se a loja é física ou online.' });
   }
@@ -307,7 +317,7 @@ app.put('/api/items/:id', uploadItemPhoto.single('photo'), asyncRoute(async (req
     fields.folderId = folder.id;
   }
   if (req.body.storeType !== undefined) {
-    const storeType = (req.body.storeType || '').trim();
+    const storeType = (req.body.storeType || '').trim() || 'online';
     if (storeType !== 'fisica' && storeType !== 'online') {
       return res.status(400).json({ error: 'Escolha se a loja é física ou online.' });
     }

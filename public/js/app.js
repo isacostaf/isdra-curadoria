@@ -102,6 +102,20 @@ function gradFor(id) {
   return GRADIENTS[hash % GRADIENTS.length];
 }
 
+// primeiro "card" da grade: sem foto/painel, só um círculo com + —
+// clicar já abre direto o formulário de criação (pasta ou produto)
+function tileAddHtml(label) {
+  return `<div class="tile tile-add" data-tile-add role="button" tabindex="0" aria-label="${esc(label)}"><span class="tile-add-circle">${ICONS.plus}</span></div>`;
+}
+function wireTileAdd(grid, onClick) {
+  const el = grid.querySelector('[data-tile-add]');
+  if (!el) return;
+  el.addEventListener('click', onClick);
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); }
+  });
+}
+
 // ---------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------
@@ -124,21 +138,63 @@ function hostFromUrl(url) {
 }
 
 // ---------------------------------------------------------------
-// session (per-project code + senha, kept for this browser tab only —
-// closing the tab or opening a fresh one asks for the code again)
+// arrastar-e-soltar / colar imagem — usado nos seletores de foto de
+// pasta e de produto. Injeta o arquivo no <input type=file> via
+// DataTransfer e dispara 'change' pra reaproveitar o preview já existente.
+function assignFileToInput(inputEl, file) {
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  inputEl.files = dt.files;
+  inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+}
+function wireImageDropAndPaste(zoneEl, inputEl) {
+  ['dragenter', 'dragover'].forEach((evt) => {
+    zoneEl.addEventListener(evt, (e) => {
+      e.preventDefault();
+      zoneEl.classList.add('drag-over');
+    });
+  });
+  ['dragleave', 'drop'].forEach((evt) => {
+    zoneEl.addEventListener(evt, () => zoneEl.classList.remove('drag-over'));
+  });
+  zoneEl.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file && /^image\//.test(file.type)) assignFileToInput(inputEl, file);
+  });
+
+  // cola de qualquer lugar dentro da folha do modal (não precisa focar o input)
+  const sheet = zoneEl.closest('[data-sheet]') || zoneEl;
+  sheet.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.kind === 'file' && /^image\//.test(item.type)) {
+        const file = item.getAsFile();
+        if (file) { e.preventDefault(); assignFileToInput(inputEl, file); }
+        break;
+      }
+    }
+  });
+}
+
+// ---------------------------------------------------------------
+// session (per-project code + senha) — guardada em localStorage pra
+// durar entre abas e reinícios do navegador, expirando só quando o
+// próprio JWT expira (30 dias, ver server/auth.js)
 // ---------------------------------------------------------------
 const SESSION_KEY = 'isdra_session';
 function getSession() {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch (e) { return null; }
 }
 function setSession(token, project) {
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token, project }));
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ token, project }));
 }
 function clearSession() {
-  sessionStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_KEY);
 }
 
 async function api(path, opts = {}) {
@@ -615,7 +671,8 @@ async function loadFolders() {
       document.getElementById('btn-new-folder-empty').addEventListener('click', () => openFolderFormModal());
       return;
     }
-    grid.innerHTML = folders.map(folderCardHtml).join('');
+    grid.innerHTML = tileAddHtml('Nova pasta') + folders.map(folderCardHtml).join('');
+    wireTileAdd(grid, () => openFolderFormModal());
     folders.forEach((f) => {
       const card = grid.querySelector(`[data-folder-id="${f.id}"]`);
       card.addEventListener('click', (e) => {
@@ -746,13 +803,13 @@ function openFolderFormModal(folder = null) {
       </div>
       <div class="field">
         <label>Foto da pasta <span class="req">*</span></label>
-        <div class="photo-picker">
+        <div class="photo-picker" id="folder-photo-picker">
           ${isEdit && folder.photoUrl
             ? `<img class="photo-preview" id="folder-photo-preview" src="${folder.photoUrl}" />`
             : `<div class="photo-preview-empty" id="folder-photo-preview-empty">${ICONS.image}</div>`}
           <div>
             <button type="button" class="btn btn-ghost btn-sm" id="folder-photo-pick-btn">Escolher foto</button>
-            <div class="field-hint">JPG, PNG ou WEBP</div>
+            <div class="field-hint">JPG, PNG ou WEBP — arraste, cole ou clique</div>
           </div>
         </div>
         <input type="file" accept="image/*" name="photo" id="folder-photo-input" style="display:none" ${isEdit ? '' : 'required'} />
@@ -776,6 +833,7 @@ function openFolderFormModal(folder = null) {
     if (existingPreview) existingPreview.src = url;
     else if (existingEmpty) existingEmpty.outerHTML = `<img class="photo-preview" id="folder-photo-preview" src="${url}" />`;
   });
+  wireImageDropAndPaste(document.getElementById('folder-photo-picker'), photoInput);
 
   const form = document.getElementById('folder-form');
   form.addEventListener('submit', async (e) => {
@@ -916,7 +974,8 @@ async function loadItems(folderId) {
       document.getElementById('btn-new-item-empty').addEventListener('click', () => openItemFormModal({ defaultFolderId: folderId, onSaved: onItemSaved }));
       return;
     }
-    grid.innerHTML = items.map(itemCardHtml).join('');
+    grid.innerHTML = tileAddHtml('Novo produto') + items.map(itemCardHtml).join('');
+    wireTileAdd(grid, () => openItemFormModal({ defaultFolderId: folderId, onSaved: onItemSaved }));
     items.forEach((it) => {
       const card = grid.querySelector(`[data-item-id="${it.id}"]`);
       card.addEventListener('click', (e) => {
@@ -991,18 +1050,18 @@ async function openItemFormModal({ item = null, defaultFolderId = null, onSaved 
         <div class="field-hint">${defaultFolderId && !isEdit ? 'Pré-selecionada pela pasta atual — troque se quiser.' : `Se não escolher outra, vai para "${esc(allProductsFolder ? allProductsFolder.name : 'Todos os produtos')}".`}</div>
       </div>
       <div class="field">
-        <label>Loja física ou online <span class="req">*</span></label>
+        <label>Loja física ou online <span class="opt">(opcional)</span></label>
         <div class="store-type-toggle">
           <label class="store-type-option">
-            <input type="radio" name="storeType" value="fisica" ${isEdit && item.storeType === 'fisica' ? 'checked' : ''} required />
+            <input type="radio" name="storeType" value="fisica" ${isEdit && item.storeType === 'fisica' ? 'checked' : ''} />
             <span>Loja física</span>
           </label>
           <label class="store-type-option">
-            <input type="radio" name="storeType" value="online" ${isEdit && item.storeType === 'online' ? 'checked' : ''} required />
+            <input type="radio" name="storeType" value="online" ${!isEdit || item.storeType === 'online' ? 'checked' : ''} />
             <span>Loja online</span>
           </label>
         </div>
-        <div class="field-hint">O único campo obrigatório.</div>
+        <div class="field-hint">Se não escolher, fica como loja online.</div>
       </div>
       <div class="field">
         <label>Link do produto <span class="opt">(opcional)</span></label>
@@ -1010,13 +1069,14 @@ async function openItemFormModal({ item = null, defaultFolderId = null, onSaved 
       </div>
       <div class="field">
         <label>Foto do produto <span class="opt">(opcional)</span></label>
-        <div class="photo-picker">
+        <div class="photo-picker" id="item-photo-picker">
           ${isEdit && item.photoUrl
             ? `<img class="photo-preview" id="item-photo-preview" src="${item.photoUrl}" />`
             : `<div class="photo-preview-empty" id="item-photo-preview-empty">${ICONS.sofa}</div>`}
           <div>
             <button type="button" class="btn btn-ghost btn-sm" id="item-photo-pick-btn">Escolher foto</button>
             ${isEdit && item.photoUrl ? `<button type="button" class="btn btn-text btn-sm" id="item-photo-remove-btn">Remover</button>` : ''}
+            <div class="field-hint">arraste ou cole uma imagem</div>
           </div>
         </div>
         <input type="file" accept="image/*" name="photo" id="item-photo-input" style="display:none" />
@@ -1060,6 +1120,7 @@ async function openItemFormModal({ item = null, defaultFolderId = null, onSaved 
     if (existingPreview) existingPreview.src = url;
     else if (existingEmpty) existingEmpty.outerHTML = `<img class="photo-preview" id="item-photo-preview" src="${url}" />`;
   });
+  wireImageDropAndPaste(document.getElementById('item-photo-picker'), photoInput);
   const removeBtn = document.getElementById('item-photo-remove-btn');
   if (removeBtn) {
     removeBtn.addEventListener('click', () => {
@@ -1145,7 +1206,7 @@ function openItemDetailModal(item, folderId) {
     </div>
     <div>
       <h2 class="ficha-title">${esc(itemDisplayTitle(item))}</h2>
-      ${price ? `<div class="ficha-price">${esc(price)}</div>` : ''}
+      ${price ? `<div class="ficha-price">${esc(price)}</div><div class="ficha-price-label">Valor total</div>` : ''}
     </div>
     ${stats.length ? `
       <div class="ficha-grid">
