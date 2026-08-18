@@ -496,6 +496,54 @@ svg { display: block; }
 .tile-kebab:hover { transform: scale(1.08); }
 .tile-kebab svg { width: 13px; height: 13px; color: var(--ink); }
 
+/* pasta "já comprado": fica esmaecida na grade mas continua clicável —
+   e sempre ordenada por último (ver server/store.js listFolders) */
+.folder-card.purchased { opacity: 0.5; filter: grayscale(0.5); }
+.folder-card.purchased:hover { opacity: 0.7; }
+.folder-purchased-badge {
+  position: absolute; top: 100px; left: 40px; z-index: 3;
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(255, 255, 255);
+  color: var(--ink);
+  font-size: 10px; font-weight: 700;
+  padding: 5px 9px 5px 7px;
+  border-radius: 100px;
+  box-shadow: 0 4px 12px rgba(20, 17, 12, 0.18);
+}
+.folder-purchased-badge svg { width: 22px; height: 22px; color: var(--success); }
+
+/* produto adicionado ao carrinho — mesma linguagem visual do badge de pasta comprada */
+.item-cart-badge {
+  position: absolute; top: 10px; left: 10px; z-index: 3;
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
+  font-size: 10px; font-weight: 700;
+  padding: 5px 9px 5px 7px;
+  border-radius: 100px;
+  box-shadow: 0 4px 12px rgba(20, 17, 12, 0.18);
+}
+.item-cart-badge svg { width: 11px; height: 11px; color: var(--accent); }
+
+/* ---------- carrinho de compras ---------- */
+.cart-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: rgba(117, 107, 92, 0.6);
+  border: 1px solid rgba(117, 107, 92, 0.25);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: var(--radius-lg);
+  padding: 18px 22px;
+  margin-bottom: 22px;
+  box-shadow: var(--shadow-soft);
+}
+.cart-summary-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--cream-mid); margin-bottom: 4px; }
+.cart-summary-total { font-family: 'League Spartan', 'Inter', sans-serif; font-size: 24px; font-weight: 700; color: var(--cream-deep); }
+
 /* frosted glass panel over the bottom of the photo — text sits on real blur */
 .tile-panel {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
@@ -571,6 +619,17 @@ svg { display: block; }
   color: var(--ink-softt);
   min-height: 20px;
   margin: 0 0 3px;
+}
+.tile-total-price {
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--ink-faint);
+  min-height: 14px;
+  margin: 0 0 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tile-line {
   font-size: 11.5px;
@@ -879,8 +938,9 @@ svg { display: block; }
   box-shadow: 0 4px 14px rgba(20, 17, 12, 0.2);
 }
 .ficha-title { font-size: 20px; font-weight: 700; margin: 0 0 6px; color: var(--ink); }
+.ficha-price-block { margin-bottom: 16px; }
 .ficha-price { font-size: 21px; color: var(--accent); font-weight: 800; margin: 0 0 2px; }
-.ficha-price-label { font-size: 12px; font-weight: 400; font-style: italic; color: var(--ink-faint); margin: 0 0 16px; }
+.ficha-price-label { font-size: 12px; font-weight: 400; font-style: italic; color: var(--ink-faint); margin: 0; }
 .ficha-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
 .ficha-stat {
   padding: 12px 14px;
@@ -906,8 +966,8 @@ svg { display: block; }
   padding: 14px;
   font-size: 14.5px;
 }
-.ficha-actions { display: flex; gap: 10px; margin-top: 14px; }
-.ficha-actions .btn { flex: 1; }
+.ficha-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.ficha-actions .btn { flex: 1 1 140px; }
 .ficha-section-title { display: flex; align-items: center; gap: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; color: var(--ink-soft); margin: 18px 0 8px; }
 .ficha-section-title svg { width: 13px; height: 13px; }
 

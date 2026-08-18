@@ -314,6 +314,7 @@ function openFabMenu(anchorEl, items) {
 function parseHash() {
   const h = location.hash.replace(/^#/, '');
   if (h.startsWith('folder/')) return { view: 'folder', id: h.slice(7) };
+  if (h === 'cart') return { view: 'cart' };
   return { view: 'home' };
 }
 window.addEventListener('hashchange', route);
@@ -321,6 +322,7 @@ window.addEventListener('hashchange', route);
 function route() {
   const r = parseHash();
   if (r.view === 'folder') renderFolderView(r.id);
+  else if (r.view === 'cart') renderCartView();
   else renderHomeView();
 }
 
@@ -626,7 +628,8 @@ async function renderHomeView() {
   document.getElementById('fab-add-home').addEventListener('click', (e) => {
     openFabMenu(e.currentTarget, [
       { label: 'Adicionar pasta', icon: ICONS.folder, onClick: () => openFolderFormModal() },
-      { label: 'Adicionar produto', icon: ICONS.sofa, onClick: () => openItemFormModal({ onSaved: () => {} }) }
+      { label: 'Adicionar produto', icon: ICONS.sofa, onClick: () => openItemFormModal({ onSaved: () => {} }) },
+      { label: 'Carrinho de compras', icon: ICONS.bag, onClick: () => { location.hash = 'cart'; } }
     ]);
   });
   startHeroTyping(document.getElementById('hero-typed-text'));
@@ -682,7 +685,14 @@ async function loadFolders() {
       card.querySelector('[data-kebab]').addEventListener('click', (e) => {
         e.stopPropagation();
         const actions = [{ label: 'Editar pasta', icon: ICONS.edit, onClick: () => openFolderFormModal(f) }];
-        if (!f.isAllProducts) actions.push({ label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(f) });
+        if (!f.isAllProducts) {
+          actions.push({
+            label: f.purchased ? 'Desmarcar já comprado' : 'Marcar como já comprado',
+            icon: ICONS.check,
+            onClick: () => toggleFolderPurchased(f, loadFolders)
+          });
+          actions.push({ label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(f) });
+        }
         openActionSheet(actions);
       });
     });
@@ -691,13 +701,28 @@ async function loadFolders() {
   }
 }
 
+async function toggleFolderPurchased(folder, onDone) {
+  try {
+    await api(`/api/folders/${folder.id}/purchased`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ purchased: !folder.purchased })
+    });
+    toast(folder.purchased ? 'Pasta desmarcada.' : 'Pasta marcada como já comprada.');
+    if (onDone) onDone();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
 function folderCardHtml(f) {
   const media = f.photoUrl
     ? `<img class="tile-img" src="${f.photoUrl}" alt="${esc(f.name)}" loading="lazy" />`
     : `<div class="tile-placeholder ${gradFor(f.id)}">${ICONS.folder}</div>`;
   return `
-    <div class="tile folder-card" data-folder-id="${f.id}">
+    <div class="tile folder-card ${f.purchased ? 'purchased' : ''}" data-folder-id="${f.id}">
       ${media}
+      ${f.purchased ? `<div class="folder-purchased-badge">${ICONS.check} Já comprado</div>` : ''}
       <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
       <div class="tile-panel">
         <h3 class="tile-title">${esc(f.name)}</h3>
@@ -948,7 +973,14 @@ async function renderFolderView(id) {
 
   document.getElementById('folder-kebab').addEventListener('click', () => {
     const actions = [{ label: 'Editar pasta', icon: ICONS.edit, onClick: () => openFolderFormModal(folder) }];
-    if (!folder.isAllProducts) actions.push({ label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(folder) });
+    if (!folder.isAllProducts) {
+      actions.push({
+        label: folder.purchased ? 'Desmarcar já comprado' : 'Marcar como já comprado',
+        icon: ICONS.check,
+        onClick: () => toggleFolderPurchased(folder, () => renderFolderView(folder.id))
+      });
+      actions.push({ label: 'Excluir pasta', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteFolder(folder) });
+    }
     openActionSheet(actions);
   });
 
@@ -956,6 +988,112 @@ async function renderFolderView(id) {
   document.getElementById('fab-add-item').addEventListener('click', () => openItemFormModal({ defaultFolderId: folder.id, onSaved: onItemSaved }));
 
   loadItems(folder.id);
+}
+
+// ---------------------------------------------------------------
+// CARRINHO DE COMPRAS
+// ---------------------------------------------------------------
+async function renderCartView() {
+  appEl.innerHTML = `
+    <div class="view-enter">
+      <div class="folder-header">
+        <button class="btn btn-icon back-btn" id="cart-back-btn">${ICONS.back}</button>
+        <div class="folder-info">
+          <h1>Carrinho de compras</h1>
+          <div class="folder-sub" id="cart-sub">Carregando…</div>
+        </div>
+      </div>
+      <div class="cart-summary" id="cart-summary" hidden>
+        <div class="cart-summary-info">
+          <div class="cart-summary-label">Valor total do carrinho</div>
+          <div class="cart-summary-total" id="cart-summary-total"></div>
+        </div>
+        <button class="btn btn-primary" id="cart-report-btn">${ICONS.note} Gerar relatório</button>
+      </div>
+      <div class="grid" id="cart-grid">${skeletonCards(4)}</div>
+    </div>
+  `;
+  document.getElementById('cart-back-btn').addEventListener('click', () => { location.hash = ''; });
+  document.getElementById('cart-report-btn').addEventListener('click', downloadCartReport);
+  loadCart();
+}
+
+async function loadCart() {
+  const grid = document.getElementById('cart-grid');
+  try {
+    const data = await api('/api/cart');
+    const items = data.items;
+    document.getElementById('cart-sub').textContent = `${items.length} ${items.length === 1 ? 'produto' : 'produtos'}`;
+    const summary = document.getElementById('cart-summary');
+    if (items.length) {
+      summary.hidden = false;
+      document.getElementById('cart-summary-total').textContent = fmtPrice(data.total) || 'R$ 0,00';
+    } else {
+      summary.hidden = true;
+    }
+
+    if (!items.length) {
+      grid.outerHTML = `
+        <div class="empty-state" id="cart-grid-empty" style="grid-column:1/-1;">
+          <div class="icon">${ICONS.bag}</div>
+          <p><strong>Seu carrinho está vazio</strong></p>
+          <p>Abra um produto e escolha "Adicionar ao carrinho" pra reunir aqui tudo que você já decidiu comprar.</p>
+          <button class="btn btn-primary" onclick="location.hash=''">Ver minhas pastas</button>
+        </div>`;
+      return;
+    }
+
+    grid.innerHTML = items.map(itemCardHtml).join('');
+    items.forEach((it) => {
+      const card = grid.querySelector(`[data-item-id="${it.id}"]`);
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('[data-kebab]')) return;
+        openItemDetailModal(it, it.folderId, loadCart);
+      });
+      card.querySelector('[data-kebab]').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openActionSheet([
+          { label: 'Ver ficha completa', icon: ICONS.eye, onClick: () => openItemDetailModal(it, it.folderId, loadCart) },
+          { label: 'Remover do carrinho', icon: ICONS.bag, onClick: () => toggleItemCart(it, loadCart) },
+          { label: 'Excluir item', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteItem(it, it.folderId, loadCart) }
+        ]);
+      });
+    });
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">${ICONS.warning}</div><p>Erro ao carregar o carrinho.</p></div>`;
+  }
+}
+
+async function downloadCartReport() {
+  const btn = document.getElementById('cart-report-btn');
+  const originalText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Gerando…';
+  try {
+    const session = getSession();
+    const headers = {};
+    if (session && session.token) headers.Authorization = `Bearer ${session.token}`;
+    const res = await fetch('/api/cart/report', { headers });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Não foi possível gerar o relatório.');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `carrinho-${(session && session.project && session.project.code) || 'isdra'}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast('Relatório gerado.');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+  }
 }
 
 async function loadItems(folderId) {
@@ -987,12 +1125,27 @@ async function loadItems(folderId) {
         openActionSheet([
           { label: 'Ver ficha completa', icon: ICONS.eye, onClick: () => openItemDetailModal(it, folderId) },
           { label: 'Editar item', icon: ICONS.edit, onClick: () => openItemFormModal({ item: it, defaultFolderId: folderId, onSaved: onItemSaved }) },
+          { label: it.inCart ? 'Remover do carrinho' : 'Adicionar ao carrinho', icon: ICONS.bag, onClick: () => toggleItemCart(it, onItemSaved) },
           { label: 'Excluir item', icon: ICONS.trash, danger: true, onClick: () => confirmDeleteItem(it, folderId) }
         ]);
       });
     });
   } catch (e) {
     grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="icon">${ICONS.warning}</div><p>Erro ao carregar itens.</p></div>`;
+  }
+}
+
+async function toggleItemCart(item, onDone) {
+  try {
+    await api(`/api/items/${item.id}/cart`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inCart: !item.inCart })
+    });
+    toast(item.inCart ? 'Removido do carrinho.' : 'Adicionado ao carrinho.');
+    if (onDone) onDone();
+  } catch (e) {
+    toast(e.message, 'error');
   }
 }
 
@@ -1005,6 +1158,7 @@ function itemDisplayTitle(item) {
 
 function itemCardHtml(item) {
   const price = fmtPrice(item.price);
+  const totalPrice = fmtPrice(item.totalPrice);
   const hasPhoto = !!item.photoUrl;
   const media = hasPhoto
     ? `<img class="tile-img" src="${item.photoUrl}" alt="${esc(itemDisplayTitle(item))}" loading="lazy" />`
@@ -1013,10 +1167,12 @@ function itemCardHtml(item) {
   return `
     <div class="tile item-card" data-item-id="${item.id}">
       ${media}
+      ${item.inCart ? `<div class="item-cart-badge">${ICONS.bag} No carrinho</div>` : ''}
       <button class="tile-kebab" data-kebab type="button" aria-label="Mais opções">${ICONS.kebab}</button>
       <div class="tile-panel">
         <div class="tile-tags">${storeTypeLabel ? `<span class="tile-tag store-${esc(item.storeType)}">${esc(storeTypeLabel)}</span>` : ''}</div>
         <div class="tile-price">${price ? esc(price) : ''}</div>
+        <div class="tile-total-price">${totalPrice ? esc(totalPrice) : ''}</div>
         <div class="tile-line">${item.measurements ? esc(item.measurements) : ''}</div>
         <div class="tile-line">${item.store ? esc(item.store) : ''}</div>
       </div>
@@ -1088,13 +1244,19 @@ async function openItemFormModal({ item = null, defaultFolderId = null, onSaved 
           <input type="number" step="0.01" min="0" name="price" placeholder="0,00" value="${isEdit && item.price !== null ? item.price : ''}" />
         </div>
         <div class="field">
+          <label>Valor total <span class="opt">(opcional)</span></label>
+          <input type="number" step="0.01" min="0" name="totalPrice" placeholder="0,00" value="${isEdit && item.totalPrice !== null && item.totalPrice !== undefined ? item.totalPrice : ''}" />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
           <label>Medidas <span class="opt">(opcional)</span></label>
           <input type="text" name="measurements" placeholder="Ex: 120x60x75cm" value="${isEdit ? esc(item.measurements) : ''}" />
         </div>
-      </div>
-      <div class="field">
-        <label>Loja <span class="opt">(opcional)</span></label>
-        <input type="text" name="store" placeholder="Ex: Madeira Madeira" value="${isEdit ? esc(item.store) : ''}" maxlength="80" />
+        <div class="field">
+          <label>Loja <span class="opt">(opcional)</span></label>
+          <input type="text" name="store" placeholder="Ex: Madeira Madeira" value="${isEdit ? esc(item.store) : ''}" maxlength="80" />
+        </div>
       </div>
       <div class="field">
         <label>Observações <span class="opt">(opcional)</span></label>
@@ -1167,7 +1329,7 @@ async function refreshFolderHeaderCount(folderId) {
   } catch (e) { /* silent */ }
 }
 
-async function confirmDeleteItem(item, folderId) {
+async function confirmDeleteItem(item, folderId, onDone) {
   openConfirmModal({
     title: 'Excluir item?',
     message: `"${itemDisplayTitle(item)}" será removido permanentemente.`,
@@ -1176,8 +1338,12 @@ async function confirmDeleteItem(item, folderId) {
       try {
         await api(`/api/items/${item.id}`, { method: 'DELETE' });
         toast('Item excluído.');
-        loadItems(folderId);
-        refreshFolderHeaderCount(folderId);
+        if (onDone) {
+          onDone();
+        } else {
+          loadItems(folderId);
+          refreshFolderHeaderCount(folderId);
+        }
       } catch (e) {
         toast(e.message, 'error');
       }
@@ -1188,12 +1354,13 @@ async function confirmDeleteItem(item, folderId) {
 // ---------------------------------------------------------------
 // ITEM DETAIL (ficha completa)
 // ---------------------------------------------------------------
-function openItemDetailModal(item, folderId) {
+function openItemDetailModal(item, folderId, onChange) {
+  const refresh = onChange || (() => { loadItems(folderId); refreshFolderHeaderCount(folderId); });
   const price = fmtPrice(item.price);
+  const totalPrice = fmtPrice(item.totalPrice);
   const storeTypeLabel = STORE_TYPE_LABELS[item.storeType] || '';
   const stats = [];
   if (storeTypeLabel) stats.push({ k: 'Tipo de loja', v: storeTypeLabel, icon: ICONS.store });
-  if (price) stats.push({ k: 'Preço', v: price, icon: ICONS.tag });
   if (item.measurements) stats.push({ k: 'Medidas', v: item.measurements, icon: ICONS.rulerSmall });
   if (item.store) stats.push({ k: 'Loja', v: item.store, icon: ICONS.store });
 
@@ -1204,9 +1371,10 @@ function openItemDetailModal(item, folderId) {
         : `<div class="ficha-photo-empty ${gradFor(item.id)}">${ICONS.sofa}</div>`}
       <button class="modal-close" data-modal-close>${ICONS.close}</button>
     </div>
-    <div>
+    <div class="ficha-price-block">
       <h2 class="ficha-title">${esc(itemDisplayTitle(item))}</h2>
-      ${price ? `<div class="ficha-price">${esc(price)}</div><div class="ficha-price-label">Valor total</div>` : ''}
+      ${price ? `<div class="ficha-price">${esc(price)}</div>` : ''}
+      ${totalPrice ? `<div class="ficha-price-label">Valor total: ${esc(totalPrice)}</div>` : ''}
     </div>
     ${stats.length ? `
       <div class="ficha-grid">
@@ -1217,18 +1385,34 @@ function openItemDetailModal(item, folderId) {
       <div class="ficha-notes">${esc(item.notes)}</div>` : ''}
     ${item.link ? `<a class="btn btn-primary ficha-link-btn" href="${esc(item.link)}" target="_blank" rel="noopener">${ICONS.external} Ver produto — ${esc(hostFromUrl(item.link))}</a>` : ''}
     <div class="ficha-actions">
+      <button class="btn btn-ghost" id="ficha-cart-btn">${ICONS.bag} ${item.inCart ? 'Remover do carrinho' : 'Adicionar ao carrinho'}</button>
       <button class="btn btn-ghost" id="ficha-edit-btn">${ICONS.edit} Editar</button>
       <button class="btn btn-danger" id="ficha-delete-btn">${ICONS.trash} Excluir</button>
     </div>
   `;
   openModal(html);
+  document.getElementById('ficha-cart-btn').addEventListener('click', async () => {
+    try {
+      const updated = await api(`/api/items/${item.id}/cart`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inCart: !item.inCart })
+      });
+      toast(item.inCart ? 'Removido do carrinho.' : 'Adicionado ao carrinho.');
+      closeModal();
+      openItemDetailModal(updated, folderId, onChange);
+      refresh();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  });
   document.getElementById('ficha-edit-btn').addEventListener('click', () => {
     closeModal();
-    openItemFormModal({ item, defaultFolderId: folderId, onSaved: () => { loadItems(folderId); refreshFolderHeaderCount(folderId); } });
+    openItemFormModal({ item, defaultFolderId: folderId, onSaved: refresh });
   });
   document.getElementById('ficha-delete-btn').addEventListener('click', () => {
     closeModal();
-    confirmDeleteItem(item, folderId);
+    confirmDeleteItem(item, folderId, onChange);
   });
 }
 

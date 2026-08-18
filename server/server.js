@@ -12,6 +12,7 @@ const {
   verifySessionToken
 } = require('./auth');
 const store = require('./store');
+const { renderCartReportPdf } = require('./cart-report');
 
 const app = express();
 const PORT = process.env.PORT || 3210;
@@ -125,7 +126,7 @@ app.get('/api/auth/me', requireAuth, asyncRoute(async (req, res) => {
 }));
 
 // everything below this line is scoped to the authenticated project
-app.use(['/api/project', '/api/folders', '/api/items'], requireAuth);
+app.use(['/api/project', '/api/folders', '/api/items', '/api/cart'], requireAuth);
 
 // ============================================================
 // PROJECT (architecture PDF + furniture notebook PDF)
@@ -227,6 +228,17 @@ app.put('/api/folders/:id', uploadFolderPhoto.single('photo'), asyncRoute(async 
   res.json(store.folderPayload(updated, countFor(updated, counts)));
 }));
 
+// marcar/desmarcar "já comprado" — some campo separado (JSON, sem multer)
+// pra não precisar reenviar nome/foto só pra mudar esse estado
+app.patch('/api/folders/:id/purchased', asyncRoute(async (req, res) => {
+  const existing = await store.findFolder(req.params.id, req.projectId);
+  if (!existing) return res.status(404).json({ error: 'Pasta não encontrada.' });
+  const purchased = !!req.body.purchased;
+  const updated = await store.updateFolder(req.params.id, req.projectId, { purchased });
+  const counts = await store.countItemsByFolder(req.projectId);
+  res.json(store.folderPayload(updated, countFor(updated, counts)));
+}));
+
 app.delete('/api/folders/:id', asyncRoute(async (req, res) => {
   const existing = await store.findFolder(req.params.id, req.projectId);
   if (!existing) return res.status(404).json({ error: 'Pasta não encontrada.' });
@@ -272,6 +284,7 @@ async function createItemFromRequest(req, res, folder) {
     storeType,
     photoPath,
     price: req.body.price ? Number(req.body.price) : null,
+    totalPrice: req.body.totalPrice ? Number(req.body.totalPrice) : null,
     measurements: (req.body.measurements || '').trim(),
     link,
     store: (req.body.store || '').trim(),
@@ -325,6 +338,7 @@ app.put('/api/items/:id', uploadItemPhoto.single('photo'), asyncRoute(async (req
   }
   if (req.body.link !== undefined) fields.link = normalizeLink(req.body.link);
   if (req.body.price !== undefined) fields.price = req.body.price === '' ? null : Number(req.body.price);
+  if (req.body.totalPrice !== undefined) fields.totalPrice = req.body.totalPrice === '' ? null : Number(req.body.totalPrice);
   if (req.body.measurements !== undefined) fields.measurements = req.body.measurements.trim();
   if (req.body.store !== undefined) fields.store = req.body.store.trim();
   if (req.body.notes !== undefined) fields.notes = req.body.notes.trim();
@@ -350,6 +364,43 @@ app.delete('/api/items/:id', asyncRoute(async (req, res) => {
   if (!deleted) return res.status(404).json({ error: 'Item não encontrado.' });
   if (deleted.photo_path) store.removeFile(deleted.photo_path);
   res.json({ ok: true });
+}));
+
+// adicionar/remover do carrinho — campo separado (JSON, sem multer)
+app.patch('/api/items/:id/cart', asyncRoute(async (req, res) => {
+  const existing = await store.findItem(req.params.id, req.projectId);
+  if (!existing) return res.status(404).json({ error: 'Item não encontrado.' });
+  const inCart = !!req.body.inCart;
+  const updated = await store.updateItem(req.params.id, req.projectId, { inCart });
+  res.json(store.itemPayload(updated));
+}));
+
+// ============================================================
+// CARRINHO DE COMPRAS
+// ============================================================
+// soma do carrinho: usa sempre o "Valor total" de cada produto — só cai
+// pro "Preço" se o valor total não tiver sido preenchido
+function cartItemValue(it) {
+  if (it.totalPrice !== null && it.totalPrice !== undefined) return Number(it.totalPrice) || 0;
+  return Number(it.price) || 0;
+}
+
+app.get('/api/cart', asyncRoute(async (req, res) => {
+  const items = await store.listCartItems(req.projectId);
+  const payloads = items.map(store.itemPayload);
+  const total = payloads.reduce((sum, it) => sum + cartItemValue(it), 0);
+  res.json({ items: payloads, total });
+}));
+
+app.get('/api/cart/report', asyncRoute(async (req, res) => {
+  const project = await store.findProjectById(req.projectId);
+  if (!project) return res.status(404).json({ error: 'Projeto não encontrado.' });
+  const items = await store.listCartItems(req.projectId);
+  const payloads = items.map(store.itemPayload);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="carrinho-${store.publicProject(project).code}.pdf"`);
+  await renderCartReportPdf({ project: store.publicProject(project), items: payloads }, res);
 }));
 
 // ---------- Error handling ----------

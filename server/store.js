@@ -64,6 +64,7 @@ async function listFolders(projectId) {
     .select('*')
     .eq('project_id', projectId)
     .order('is_all_products', { ascending: true })
+    .order('purchased', { ascending: true })
     .order('name', { ascending: true });
   mustNot(error, 'Erro ao listar pastas');
   return data;
@@ -122,6 +123,7 @@ async function updateFolder(id, projectId, fields) {
   const patch = {};
   if (fields.name !== undefined) patch.name = fields.name;
   if (fields.photoPath !== undefined) patch.photo_path = fields.photoPath;
+  if (fields.purchased !== undefined) patch.purchased = fields.purchased;
   const { data, error } = await supabase.from('folders').update(patch).eq('id', id).eq('project_id', projectId).select('*').single();
   mustNot(error, 'Erro ao atualizar pasta');
   return data;
@@ -148,7 +150,8 @@ function folderPayload(folder, itemCount) {
     photo: folder.photo_path,
     photoUrl: folder.photo_path ? publicUrlFor(folder.photo_path) : null,
     itemCount: itemCount || 0,
-    isAllProducts: !!folder.is_all_products
+    isAllProducts: !!folder.is_all_products,
+    purchased: !!folder.purchased
   };
 }
 
@@ -173,6 +176,18 @@ async function findItem(id, projectId) {
   return data;
 }
 
+// ---------------- carrinho de compras ----------------
+async function listCartItems(projectId) {
+  const { data, error } = await supabase
+    .from('items')
+    .select('*')
+    .eq('project_id', projectId)
+    .eq('in_cart', true)
+    .order('id', { ascending: true });
+  mustNot(error, 'Erro ao listar carrinho');
+  return data;
+}
+
 async function createItem(fields) {
   const { data, error } = await supabase
     .from('items')
@@ -182,6 +197,7 @@ async function createItem(fields) {
       store_type: fields.storeType,
       photo_path: fields.photoPath || null,
       price: fields.price,
+      total_price: fields.totalPrice,
       measurements: fields.measurements || '',
       link: fields.link || null,
       store: fields.store || '',
@@ -199,10 +215,12 @@ async function updateItem(id, projectId, fields) {
   if (fields.storeType !== undefined) patch.store_type = fields.storeType;
   if (fields.photoPath !== undefined) patch.photo_path = fields.photoPath;
   if (fields.price !== undefined) patch.price = fields.price;
+  if (fields.totalPrice !== undefined) patch.total_price = fields.totalPrice;
   if (fields.measurements !== undefined) patch.measurements = fields.measurements;
   if (fields.link !== undefined) patch.link = fields.link || null;
   if (fields.store !== undefined) patch.store = fields.store;
   if (fields.notes !== undefined) patch.notes = fields.notes;
+  if (fields.inCart !== undefined) patch.in_cart = fields.inCart;
   const { data, error } = await supabase.from('items').update(patch).eq('id', id).eq('project_id', projectId).select('*').single();
   mustNot(error, 'Erro ao atualizar item');
   return data;
@@ -222,10 +240,12 @@ function itemPayload(item) {
     photo: item.photo_path,
     photoUrl: publicUrlFor(item.photo_path),
     price: item.price,
+    totalPrice: item.total_price,
     measurements: item.measurements,
     link: item.link,
     store: item.store,
-    notes: item.notes
+    notes: item.notes,
+    inCart: !!item.in_cart
   };
 }
 
@@ -248,6 +268,7 @@ module.exports = {
   listItems,
   listAllItems,
   findItem,
+  listCartItems,
   createItem,
   updateItem,
   deleteItem,
